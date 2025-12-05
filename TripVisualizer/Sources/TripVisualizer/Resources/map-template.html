@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Trip Route: {TRIP_ID}</title>
+  <style>
+    #map { height: 100vh; width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    function initMap() {
+      const coords = {COORDINATES_JSON};
+      const map = new google.maps.Map(document.getElementById("map"), {
+        zoom: 12,
+        center: coords[0]
+      });
+
+      const path = new google.maps.Polyline({
+        path: coords,
+        geodesic: true,
+        strokeColor: "#0000FF",
+        strokeWeight: 4
+      });
+      path.setMap(map);
+
+      // Start marker
+      new google.maps.Marker({
+        position: coords[0],
+        map: map,
+        icon: "http://maps.google.com/mapfiles/ms/icons/green-dot.png",
+        title: "Start"
+      });
+
+      // End marker
+      new google.maps.Marker({
+        position: coords[coords.length - 1],
+        map: map,
+        icon: "http://maps.google.com/mapfiles/ms/icons/red-dot.png",
+        title: "End"
+      });
+
+      // Fit bounds
+      const bounds = new google.maps.LatLngBounds();
+      coords.forEach(c => bounds.extend(c));
+      map.fitBounds(bounds);
+    }
+  </script>
+  <script async defer
+    src="https://maps.googleapis.com/maps/api/js?key={API_KEY}&callback=initMap">
+  </script>
+</body>
+</html>

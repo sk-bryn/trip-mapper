@@ -1,0 +1,136 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TripVisualizer Configuration",
+  "description": "Configuration file schema for the Trip Route Visualizer CLI",
+  "type": "object",
+  "properties": {
+    "outputDirectory": {
+      "type": "string",
+      "description": "Directory path for generated output files",
+      "default": "."
+    },
+    "outputFormats": {
+      "type": "array",
+      "description": "List of output formats to generate",
+      "items": {
+        "type": "string",
+        "enum": ["image", "html", "url"]
+      },
+      "default": ["image", "html"],
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "datadog": {
+      "type": "object",
+      "description": "DataDog API configuration",
+      "properties": {
+        "region": {
+          "type": "string",
+          "description": "DataDog API region",
+          "enum": ["us1", "us3", "us5", "eu", "ap1"],
+          "default": "us1"
+        },
+        "queryTimeRange": {
+          "type": "string",
+          "description": "Time range for log queries (DataDog syntax)",
+          "default": "now-30d"
+        },
+        "pageSize": {
+          "type": "integer",
+          "description": "Number of logs per API request",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 1000
+        }
+      },
+      "additionalProperties": false
+    },
+    "googleMaps": {
+      "type": "object",
+      "description": "Google Maps visualization configuration",
+      "properties": {
+        "imageWidth": {
+          "type": "integer",
+          "description": "Static map image width in pixels",
+          "minimum": 100,
+          "maximum": 640,
+          "default": 640
+        },
+        "imageHeight": {
+          "type": "integer",
+          "description": "Static map image height in pixels",
+          "minimum": 100,
+          "maximum": 640,
+          "default": 480
+        },
+        "mapType": {
+          "type": "string",
+          "description": "Map type for static images",
+          "enum": ["roadmap", "satellite", "terrain", "hybrid"],
+          "default": "roadmap"
+        },
+        "pathColor": {
+          "type": "string",
+          "description": "Route path color (hex without #)",
+          "pattern": "^[0-9A-Fa-f]{6}$",
+          "default": "0000FF"
+        },
+        "pathWeight": {
+          "type": "integer",
+          "description": "Route path line weight in pixels",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 4
+        }
+      },
+      "additionalProperties": false
+    },
+    "logging": {
+      "type": "object",
+      "description": "Logging configuration",
+      "properties": {
+        "level": {
+          "type": "string",
+          "description": "Minimum log level",
+          "enum": ["debug", "info", "warning", "error"],
+          "default": "info"
+        },
+        "directory": {
+          "type": "string",
+          "description": "Directory for log files",
+          "default": "logs"
+        }
+      },
+      "additionalProperties": false
+    },
+    "network": {
+      "type": "object",
+      "description": "Network configuration",
+      "properties": {
+        "timeoutSeconds": {
+          "type": "integer",
+          "description": "HTTP request timeout in seconds",
+          "minimum": 5,
+          "maximum": 300,
+          "default": 30
+        },
+        "retryAttempts": {
+          "type": "integer",
+          "description": "Number of retry attempts for failed requests",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3
+        },
+        "retryDelaySeconds": {
+          "type": "integer",
+          "description": "Initial delay between retries (exponential backoff)",
+          "minimum": 1,
+          "maximum": 60,
+          "default": 2
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

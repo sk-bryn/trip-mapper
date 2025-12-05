@@ -1,0 +1,44 @@
+# Swift
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xcuserstate
+Packages/
+Package.resolved
+
+# Build artifacts
+TripVisualizer/.build/
+TripVisualizer/DerivedData/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment and secrets
+.env
+.env.*
+*.local
+
+# Logs (keep directory structure, ignore content)
+TripVisualizer/logs/*.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Thumbnails
+Thumbs.db
+ehthumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
