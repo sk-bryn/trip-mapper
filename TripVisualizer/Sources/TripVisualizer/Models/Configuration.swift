@@ -8,7 +8,7 @@ public struct Configuration: Codable, Equatable {
 
     // MARK: - Properties
 
-    /// Where to save generated files (default: current directory)
+    /// Where to save generated files (default: "output")
     public var outputDirectory: String
 
     /// Which outputs to generate (default: [.image, .html])
@@ -42,7 +42,7 @@ public struct Configuration: Codable, Equatable {
 
     /// Default configuration with sensible defaults
     public static let `default` = Configuration(
-        outputDirectory: ".",
+        outputDirectory: "output",
         outputFormats: [.image, .html],
         datadogRegion: "us1",
         datadogEnv: "prod",
@@ -98,7 +98,7 @@ public struct Configuration: Codable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        outputDirectory = try container.decodeIfPresent(String.self, forKey: .outputDirectory) ?? "."
+        outputDirectory = try container.decodeIfPresent(String.self, forKey: .outputDirectory) ?? "output"
         outputFormats = try container.decodeIfPresent([OutputFormat].self, forKey: .outputFormats) ?? [.image, .html]
         datadogRegion = try container.decodeIfPresent(String.self, forKey: .datadogRegion) ?? "us1"
         datadogEnv = try container.decodeIfPresent(String.self, forKey: .datadogEnv) ?? "prod"

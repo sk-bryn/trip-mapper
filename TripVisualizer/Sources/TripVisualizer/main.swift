@@ -5,7 +5,7 @@ import ArgumentParser
 ///
 /// Provides commands for visualizing trip routes from DataDog logs
 /// onto Google Maps.
-struct TripVisualizerCLI: AsyncParsableCommand {
+struct TripVisualizerCLI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "tripvisualizer",
         abstract: "Visualize trip routes from DataDog logs on Google Maps",
@@ -55,7 +55,7 @@ struct TripVisualizerCLI: AsyncParsableCommand {
 
     // MARK: - Execution
 
-    mutating func run() async throws {
+    mutating func run() throws {
         // Parse and validate trip ID
         guard let tripUUID = UUID(uuidString: tripId) else {
             throw TripVisualizerError.invalidUUID(tripId)
@@ -84,17 +84,31 @@ struct TripVisualizerCLI: AsyncParsableCommand {
 
         logInfo("Starting visualization for trip: \(tripUUID.uuidString)")
 
-        do {
-            // Create and run visualizer
-            let visualizer = try TripVisualizerService(configuration: config)
-            try await visualizer.visualize(tripId: tripUUID)
-            logInfo("Visualization complete")
-        } catch let error as TripVisualizerError {
-            logError(error.localizedDescription)
-            throw ExitCode(Int32(error.exitCode))
-        } catch {
-            logError(error.localizedDescription)
-            throw ExitCode.failure
+        // Run async code synchronously
+        let semaphore = DispatchSemaphore(value: 0)
+        var asyncError: Error?
+
+        Task {
+            do {
+                let visualizer = try TripVisualizerService(configuration: config)
+                try await visualizer.visualize(tripId: tripUUID)
+                logInfo("Visualization complete")
+            } catch {
+                asyncError = error
+            }
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+
+        if let error = asyncError {
+            if let vizError = error as? TripVisualizerError {
+                logError(vizError.localizedDescription)
+                throw ExitCode(Int32(vizError.exitCode))
+            } else {
+                logError(error.localizedDescription)
+                throw ExitCode.failure
+            }
         }
     }
 

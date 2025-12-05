@@ -85,35 +85,80 @@ public final class TripVisualizerService {
 
     // MARK: - Private Methods
 
-    /// Validates the DataDog log response
+    /// Validates the DataDog log response and selects the most recent log with route data
     /// - Parameters:
     ///   - response: DataDog API response
     ///   - tripId: Trip ID for error messages
-    /// - Returns: The single log entry
-    /// - Throws: `TripVisualizerError` if 0 or >1 logs found
+    /// - Returns: The most recent log entry containing segment_coords
+    /// - Throws: `TripVisualizerError` if no logs found or none have route data
     private func validateLogResponse(_ response: DataDogLogResponse, tripId: UUID) throws -> DataDogLogEntry {
-        switch response.data.count {
-        case 0:
+        guard !response.data.isEmpty else {
             throw TripVisualizerError.tripNotFound(tripId)
-        case 1:
-            return response.data[0]
-        default:
-            throw TripVisualizerError.multipleLogsFound(tripId, count: response.data.count)
         }
+
+        if response.data.count > 1 {
+            logInfo("Found \(response.data.count) logs for trip")
+        }
+
+        // Sort by timestamp descending
+        let sorted = response.data.sorted { entry1, entry2 in
+            entry1.attributes.timestamp > entry2.attributes.timestamp
+        }
+
+        // Find the first (most recent) log that has segment_coords
+        // Data can be at: attributes.segment_coords OR attributes.request.Msg.segment_coords
+        for entry in sorted {
+            if let segmentCoords = findSegmentCoords(in: entry.attributes.attributes),
+               !segmentCoords.isEmpty {
+                logInfo("Using log with \(segmentCoords.count) coordinates")
+                return entry
+            }
+        }
+
+        // No logs with route data found
+        logWarning("None of the \(response.data.count) logs contain segment_coords")
+        throw TripVisualizerError.noRouteData
+    }
+
+    /// Searches for segment_coords in various nested locations within log attributes
+    private func findSegmentCoords(in attributes: [String: Any]) -> [[String: Any]]? {
+        // Direct path: attributes.segment_coords
+        if let coords = attributes["segment_coords"] as? [[String: Any]] {
+            return coords
+        }
+
+        // Nested path: attributes.request.Msg.segment_coords
+        if let request = attributes["request"] as? [String: Any],
+           let msg = request["Msg"] as? [String: Any],
+           let coords = msg["segment_coords"] as? [[String: Any]] {
+            return coords
+        }
+
+        // Alternative: request might be an array
+        if let request = attributes["request"] as? [[String: Any]],
+           let first = request.first,
+           let msg = first["Msg"] as? [String: Any],
+           let coords = msg["segment_coords"] as? [[String: Any]] {
+            return coords
+        }
+
+        return nil
     }
 
     /// Generates all requested output formats
     /// - Parameter trip: Trip data to visualize
     private func generateOutputs(for trip: Trip) async throws {
-        // Ensure output directory exists
-        let outputDir = configuration.outputDirectory
+        // Create output directory structure: output/<tripId>/
+        let baseOutputDir = configuration.outputDirectory
+        let tripOutputDir = (baseOutputDir as NSString).appendingPathComponent(trip.id.uuidString)
         let fileManager = FileManager.default
 
-        if !fileManager.fileExists(atPath: outputDir) {
-            try fileManager.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
+        if !fileManager.fileExists(atPath: tripOutputDir) {
+            try fileManager.createDirectory(atPath: tripOutputDir, withIntermediateDirectories: true)
         }
 
         let baseName = trip.id.uuidString
+        let outputDir = tripOutputDir
 
         for format in configuration.outputFormats {
             switch format {
