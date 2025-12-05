@@ -22,12 +22,38 @@ public final class LogParser {
     /// - Returns: Array of waypoints extracted from segment_coords
     /// - Throws: `TripVisualizerError` if no route data or insufficient waypoints
     public func parseLogEntry(_ logEntry: DataDogLogEntry) throws -> [Waypoint] {
-        guard let segmentCoords = logEntry.attributes.attributes["segment_coords"] as? [[String: Any]] else {
-            logWarning("No segment_coords found in log entry \(logEntry.id)")
-            throw TripVisualizerError.noRouteData
+        // Try multiple paths to find segment_coords
+        if let segmentCoords = findSegmentCoords(in: logEntry.attributes.attributes) {
+            return try extractWaypoints(from: segmentCoords)
         }
 
-        return try extractWaypoints(from: segmentCoords)
+        logWarning("No segment_coords found in log entry \(logEntry.id)")
+        throw TripVisualizerError.noRouteData
+    }
+
+    /// Searches for segment_coords in various nested locations
+    private func findSegmentCoords(in attributes: [String: Any]) -> [[String: Any]]? {
+        // Direct path: attributes.segment_coords
+        if let coords = attributes["segment_coords"] as? [[String: Any]], !coords.isEmpty {
+            return coords
+        }
+
+        // Nested path: attributes.request.Msg.segment_coords
+        if let request = attributes["request"] as? [String: Any],
+           let msg = request["Msg"] as? [String: Any],
+           let coords = msg["segment_coords"] as? [[String: Any]], !coords.isEmpty {
+            return coords
+        }
+
+        // Alternative: request might be an array
+        if let request = attributes["request"] as? [[String: Any]],
+           let first = request.first,
+           let msg = first["Msg"] as? [String: Any],
+           let coords = msg["segment_coords"] as? [[String: Any]], !coords.isEmpty {
+            return coords
+        }
+
+        return nil
     }
 
     /// Extracts waypoints from segment_coords array
@@ -64,30 +90,44 @@ public final class LogParser {
 
     /// Parses a single coordinate dictionary into a Waypoint
     /// - Parameters:
-    ///   - coord: Coordinate dictionary with lat/lng keys
+    ///   - coord: Coordinate dictionary with lat/lng or coordinates.latitude/longitude keys
     ///   - index: Index for logging purposes
     /// - Returns: Waypoint if valid, nil otherwise
     private func parseCoordinate(_ coord: [String: Any], index: Int) -> Waypoint? {
-        // Extract latitude
-        guard let latitude = extractDouble(from: coord, key: "lat") else {
+        var latitude: Double?
+        var longitude: Double?
+
+        // Try direct keys: lat/lng
+        latitude = extractDouble(from: coord, key: "lat")
+        longitude = extractDouble(from: coord, key: "lng")
+
+        // Try nested: coordinates.latitude/longitude
+        if latitude == nil || longitude == nil {
+            if let coordinates = coord["coordinates"] as? [String: Any] {
+                latitude = extractDouble(from: coordinates, key: "latitude")
+                longitude = extractDouble(from: coordinates, key: "longitude")
+            }
+        }
+
+        // Validate we have both
+        guard let lat = latitude else {
             logWarning("Invalid or missing latitude at index \(index)")
             return nil
         }
 
-        // Extract longitude
-        guard let longitude = extractDouble(from: coord, key: "lng") else {
+        guard let lng = longitude else {
             logWarning("Invalid or missing longitude at index \(index)")
             return nil
         }
 
         // Validate coordinate ranges
-        guard Waypoint.isValidLatitude(latitude) else {
-            logWarning("Latitude \(latitude) out of range at index \(index)")
+        guard Waypoint.isValidLatitude(lat) else {
+            logWarning("Latitude \(lat) out of range at index \(index)")
             return nil
         }
 
-        guard Waypoint.isValidLongitude(longitude) else {
-            logWarning("Longitude \(longitude) out of range at index \(index)")
+        guard Waypoint.isValidLongitude(lng) else {
+            logWarning("Longitude \(lng) out of range at index \(index)")
             return nil
         }
 
@@ -99,7 +139,7 @@ public final class LogParser {
             orderId = nil
         }
 
-        return Waypoint(latitude: latitude, longitude: longitude, orderId: orderId)
+        return Waypoint(latitude: lat, longitude: lng, orderId: orderId)
     }
 
     /// Extracts a Double value from a dictionary, handling both Double and String types
