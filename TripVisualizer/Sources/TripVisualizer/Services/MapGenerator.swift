@@ -42,6 +42,8 @@ public final class MapGenerator {
         }
 
         let coordsJSON = coordinatesToJSON(waypoints)
+        let deliveryPoints = findDeliveryPoints(waypoints)
+        let deliveryMarkersJS = generateDeliveryMarkersJS(deliveryPoints)
 
         return """
         <!DOCTYPE html>
@@ -86,6 +88,9 @@ public final class MapGenerator {
                 title: "End"
               });
 
+              // Delivery markers
+        \(deliveryMarkersJS)
+
               // Fit bounds
               const bounds = new google.maps.LatLngBounds();
               coords.forEach(c => bounds.extend(c));
@@ -98,6 +103,30 @@ public final class MapGenerator {
         </body>
         </html>
         """
+    }
+
+    /// Generates JavaScript code for delivery markers
+    private func generateDeliveryMarkersJS(_ deliveryPoints: [(orderNumber: Int, waypoint: Waypoint)]) -> String {
+        guard !deliveryPoints.isEmpty else { return "" }
+
+        return deliveryPoints.map { point in
+            """
+                  new google.maps.Marker({
+                    position: {lat: \(point.waypoint.latitude), lng: \(point.waypoint.longitude)},
+                    map: map,
+                    label: { text: "\(point.orderNumber)", color: "white", fontWeight: "bold" },
+                    icon: {
+                      path: google.maps.SymbolPath.CIRCLE,
+                      scale: 12,
+                      fillColor: "#FF6600",
+                      fillOpacity: 1,
+                      strokeColor: "#CC5200",
+                      strokeWeight: 2
+                    },
+                    title: "Delivery #\(point.orderNumber)"
+                  });
+            """
+        }.joined(separator: "\n")
     }
 
     /// Writes HTML content to a file
@@ -158,6 +187,15 @@ public final class MapGenerator {
             queryItems.append(URLQueryItem(
                 name: "markers",
                 value: "color:red|label:E|\(last.latitude),\(last.longitude)"
+            ))
+        }
+
+        // Add delivery markers (orange with numbers)
+        let deliveryPoints = findDeliveryPoints(waypoints)
+        for point in deliveryPoints {
+            queryItems.append(URLQueryItem(
+                name: "markers",
+                value: "color:orange|label:\(point.orderNumber)|\(point.waypoint.latitude),\(point.waypoint.longitude)"
             ))
         }
 
@@ -230,5 +268,32 @@ public final class MapGenerator {
             "{lat: \(waypoint.latitude), lng: \(waypoint.longitude)}"
         }
         return "[\(coords.joined(separator: ", "))]"
+    }
+
+    /// Finds the last waypoint for each unique order ID
+    /// - Parameter waypoints: Array of waypoints
+    /// - Returns: Array of (orderNumber, waypoint) tuples representing delivery points
+    public func findDeliveryPoints(_ waypoints: [Waypoint]) -> [(orderNumber: Int, waypoint: Waypoint)] {
+        var orderLastWaypoint: [UUID: (index: Int, waypoint: Waypoint)] = [:]
+        var orderFirstSeen: [UUID: Int] = [:]
+        var orderCounter = 0
+
+        for (index, waypoint) in waypoints.enumerated() {
+            guard let orderId = waypoint.orderId else { continue }
+
+            // Track the order of first appearance for numbering
+            if orderFirstSeen[orderId] == nil {
+                orderCounter += 1
+                orderFirstSeen[orderId] = orderCounter
+            }
+
+            // Always update to the latest waypoint for this order
+            orderLastWaypoint[orderId] = (index, waypoint)
+        }
+
+        // Sort by the index (position in route) and return with order numbers
+        return orderLastWaypoint
+            .sorted { $0.value.index < $1.value.index }
+            .map { (orderFirstSeen[$0.key]!, $0.value.waypoint) }
     }
 }
