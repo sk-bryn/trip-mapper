@@ -62,11 +62,14 @@ public final class DataDogClient {
 
         let request = try buildSearchRequest(tripId: tripId)
 
-        let (data, response) = try await performRequest(request)
-
-        try validateResponse(response)
-
-        return try parseResponse(data)
+        // Use retry handler for transient failures
+        return try await RetryHandler.withRetry(
+            retryCount: configuration.retryAttempts
+        ) {
+            let (data, response) = try await performRequest(request)
+            try validateResponse(response)
+            return try parseResponse(data)
+        }
     }
 
     /// Builds the search request for a trip

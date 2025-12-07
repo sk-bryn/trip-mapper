@@ -14,6 +14,7 @@ public final class TripVisualizerService {
     private let dataDogClient: DataDogClient
     private let logParser: LogParser
     private let mapGenerator: MapGenerator
+    private let progress: ProgressIndicator
 
     // MARK: - Initialization
 
@@ -35,6 +36,7 @@ public final class TripVisualizerService {
         )
         self.logParser = LogParser()
         self.mapGenerator = MapGenerator(apiKey: googleAPIKey)
+        self.progress = ProgressIndicator()
     }
 
     /// Creates a TripVisualizerService with custom dependencies (for testing)
@@ -42,12 +44,14 @@ public final class TripVisualizerService {
         configuration: Configuration,
         dataDogClient: DataDogClient,
         logParser: LogParser,
-        mapGenerator: MapGenerator
+        mapGenerator: MapGenerator,
+        progress: ProgressIndicator = ProgressIndicator()
     ) {
         self.configuration = configuration
         self.dataDogClient = dataDogClient
         self.logParser = logParser
         self.mapGenerator = mapGenerator
+        self.progress = progress
     }
 
     // MARK: - Public Methods
@@ -56,19 +60,42 @@ public final class TripVisualizerService {
     /// - Parameter tripId: The trip UUID to visualize
     /// - Throws: `TripVisualizerError` on any failure
     public func visualize(tripId: UUID) async throws {
-        logInfo("Fetching logs for trip \(tripId.uuidString)")
+        let startTime = Date()
 
         // Step 1: Fetch logs from DataDog
-        let response = try await dataDogClient.fetchLogs(tripId: tripId)
+        progress.start(.fetching)
+        logInfo("Fetching logs for trip \(tripId.uuidString)")
 
-        // Step 2: Validate response
-        let logEntry = try validateLogResponse(response, tripId: tripId)
+        let response: DataDogLogResponse
+        do {
+            response = try await dataDogClient.fetchLogs(tripId: tripId)
+            progress.complete("Fetched logs from DataDog")
+        } catch {
+            progress.fail("Failed to fetch logs: \(error.localizedDescription)")
+            throw error
+        }
 
-        logInfo("Found log entry: \(logEntry.id)")
+        // Step 2: Validate and select log entry
+        progress.start(.parsing)
+        let logEntry: DataDogLogEntry
+        do {
+            logEntry = try validateLogResponse(response, tripId: tripId)
+            logInfo("Found log entry: \(logEntry.id)")
+        } catch {
+            progress.fail("No valid log data found")
+            throw error
+        }
 
         // Step 3: Parse waypoints
-        let waypoints = try logParser.parseLogEntry(logEntry)
-        logInfo("Extracted \(waypoints.count) waypoints")
+        let waypoints: [Waypoint]
+        do {
+            waypoints = try logParser.parseLogEntry(logEntry)
+            logInfo("Extracted \(waypoints.count) waypoints")
+            progress.complete("Parsed \(waypoints.count) waypoints")
+        } catch {
+            progress.fail("Failed to parse route data")
+            throw error
+        }
 
         // Step 4: Create trip model
         let trip = Trip(
@@ -80,7 +107,12 @@ public final class TripVisualizerService {
         )
 
         // Step 5: Generate outputs
-        try await generateOutputs(for: trip)
+        progress.start(.generating)
+        let outputCount = try await generateOutputs(for: trip)
+
+        // Show summary
+        let duration = Date().timeIntervalSince(startTime)
+        progress.showSummary(tripId: tripId.uuidString, outputCount: outputCount, duration: duration)
     }
 
     // MARK: - Private Methods
@@ -145,42 +177,88 @@ public final class TripVisualizerService {
         return nil
     }
 
-    /// Generates all requested output formats
+    /// Generates all requested output formats with graceful degradation
     /// - Parameter trip: Trip data to visualize
-    private func generateOutputs(for trip: Trip) async throws {
+    /// - Returns: Number of successfully generated outputs
+    /// - Note: If PNG generation fails, HTML will still be generated. Errors are collected and reported.
+    @discardableResult
+    private func generateOutputs(for trip: Trip) async throws -> Int {
         // Create output directory structure: output/<tripId>/
         let baseOutputDir = configuration.outputDirectory
         let tripOutputDir = (baseOutputDir as NSString).appendingPathComponent(trip.id.uuidString)
         let fileManager = FileManager.default
 
-        if !fileManager.fileExists(atPath: tripOutputDir) {
-            try fileManager.createDirectory(atPath: tripOutputDir, withIntermediateDirectories: true)
+        do {
+            if !fileManager.fileExists(atPath: tripOutputDir) {
+                try fileManager.createDirectory(atPath: tripOutputDir, withIntermediateDirectories: true)
+            }
+        } catch {
+            throw TripVisualizerError.cannotWriteOutput(
+                path: tripOutputDir,
+                reason: "Cannot create output directory: \(error.localizedDescription)"
+            )
         }
 
         let baseName = trip.id.uuidString
         let outputDir = tripOutputDir
 
+        var errors: [(format: OutputFormat, error: Error)] = []
+        var successCount = 0
+
         for format in configuration.outputFormats {
-            switch format {
-            case .html:
-                let path = (outputDir as NSString).appendingPathComponent("\(baseName).html")
-                try mapGenerator.writeHTML(tripId: trip.id, waypoints: trip.waypoints, to: path)
-                print("HTML: \(path)")
+            do {
+                switch format {
+                case .html:
+                    progress.update("Generating HTML map...")
+                    let path = (outputDir as NSString).appendingPathComponent("\(baseName).html")
+                    try mapGenerator.writeHTML(tripId: trip.id, waypoints: trip.waypoints, to: path)
+                    print("HTML: \(path)")
+                    successCount += 1
 
-            case .image:
-                let path = (outputDir as NSString).appendingPathComponent("\(baseName).png")
-                try await mapGenerator.downloadPNG(waypoints: trip.waypoints, to: path)
-                print("PNG: \(path)")
+                case .image:
+                    progress.start(.downloading)
+                    let path = (outputDir as NSString).appendingPathComponent("\(baseName).png")
+                    try await mapGenerator.downloadPNG(
+                        waypoints: trip.waypoints,
+                        to: path,
+                        retryCount: configuration.retryAttempts
+                    )
+                    progress.complete("Downloaded static map")
+                    print("PNG: \(path)")
+                    successCount += 1
 
-            case .url:
-                if let url = mapGenerator.generateStaticMapsURL(waypoints: trip.waypoints) {
-                    print("Static Maps URL: \(url.absoluteString)")
+                case .url:
+                    progress.update("Generating URLs...")
+                    if let url = mapGenerator.generateStaticMapsURL(waypoints: trip.waypoints) {
+                        print("Static Maps URL: \(url.absoluteString)")
+                    }
+                    if let webURL = mapGenerator.generateGoogleMapsWebURL(waypoints: trip.waypoints) {
+                        print("Google Maps URL: \(webURL.absoluteString)")
+                    }
+                    successCount += 1
                 }
-                if let webURL = mapGenerator.generateGoogleMapsWebURL(waypoints: trip.waypoints) {
-                    print("Google Maps URL: \(webURL.absoluteString)")
-                }
+            } catch {
+                errors.append((format, error))
+                progress.warn("Failed to generate \(format) output")
+                logWarning("Failed to generate \(format) output: \(error.localizedDescription)")
             }
         }
+
+        // Report results
+        if successCount == 0 && !errors.isEmpty {
+            progress.fail("All outputs failed")
+            // All outputs failed - throw the first error
+            throw errors[0].error
+        } else if !errors.isEmpty {
+            // Some outputs failed - log warnings but don't fail
+            for (format, error) in errors {
+                logWarning("Warning: \(format) output failed: \(error.localizedDescription)")
+            }
+        } else {
+            progress.complete("Generated \(successCount) output(s)")
+        }
+
+        return successCount
     }
 
     /// Parses ISO 8601 timestamp from DataDog
