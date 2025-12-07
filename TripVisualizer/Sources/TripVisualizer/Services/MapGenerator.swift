@@ -207,30 +207,54 @@ public final class MapGenerator {
     /// - Parameters:
     ///   - waypoints: Array of waypoints to display
     ///   - outputPath: Path to save the PNG file
+    ///   - retryCount: Number of retry attempts for transient failures
     /// - Throws: `TripVisualizerError` on download or file write failure
-    public func downloadPNG(waypoints: [Waypoint], to outputPath: String) async throws {
+    public func downloadPNG(
+        waypoints: [Waypoint],
+        to outputPath: String,
+        retryCount: Int = RetryHandler.defaultRetryCount
+    ) async throws {
         guard let url = generateStaticMapsURL(waypoints: waypoints) else {
             throw TripVisualizerError.noRouteData
         }
 
         logDebug("Downloading static map from: \(url.absoluteString)")
 
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+        // Use retry handler for transient network failures
+        let data: Data = try await RetryHandler.withRetry(retryCount: retryCount) {
+            let (responseData, response) = try await URLSession.shared.data(from: url)
 
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw TripVisualizerError.networkUnreachable("Invalid response from Google Maps API")
+            }
+
+            switch httpResponse.statusCode {
+            case 200:
+                return responseData
+            case 403:
                 throw TripVisualizerError.httpError(
-                    statusCode: statusCode,
+                    statusCode: 403,
+                    message: "Access denied. Ensure Static Maps API is enabled for your Google API key."
+                )
+            case 429:
+                throw TripVisualizerError.rateLimitExceeded
+            case 500...599:
+                throw TripVisualizerError.httpError(
+                    statusCode: httpResponse.statusCode,
+                    message: "Google Maps server error"
+                )
+            default:
+                throw TripVisualizerError.httpError(
+                    statusCode: httpResponse.statusCode,
                     message: "Failed to download static map"
                 )
             }
+        }
 
+        // Write file (not retried - local operation)
+        do {
             try data.write(to: URL(fileURLWithPath: outputPath))
             logInfo("PNG map written to \(outputPath)")
-        } catch let error as TripVisualizerError {
-            throw error
         } catch {
             throw TripVisualizerError.cannotWriteOutput(
                 path: outputPath,
