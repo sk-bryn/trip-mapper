@@ -29,6 +29,12 @@ public struct Configuration: Codable, Equatable {
     /// Static map height in pixels (default: 600)
     public var mapHeight: Int
 
+    /// Route polyline color as hex string (default: "0000FF" blue)
+    public var routeColor: String
+
+    /// Route polyline weight in pixels (default: 4)
+    public var routeWeight: Int
+
     /// Logging verbosity (default: .info)
     public var logLevel: LogLevel
 
@@ -41,7 +47,7 @@ public struct Configuration: Codable, Equatable {
     // MARK: - Default Configuration
 
     /// Default configuration with sensible defaults
-    public static let `default` = Configuration(
+    public static let defaultConfig = Configuration(
         outputDirectory: "output",
         outputFormats: [.image, .html],
         datadogRegion: "us1",
@@ -49,6 +55,8 @@ public struct Configuration: Codable, Equatable {
         datadogService: "delivery-driver-service",
         mapWidth: 800,
         mapHeight: 600,
+        routeColor: "0000FF",
+        routeWeight: 4,
         logLevel: .info,
         retryAttempts: 3,
         timeoutSeconds: 30
@@ -57,16 +65,18 @@ public struct Configuration: Codable, Equatable {
     // MARK: - Initialization
 
     public init(
-        outputDirectory: String = ".",
-        outputFormats: [OutputFormat] = [.image, .html],
-        datadogRegion: String = "us1",
-        datadogEnv: String = "prod",
-        datadogService: String = "delivery-driver-service",
-        mapWidth: Int = 800,
-        mapHeight: Int = 600,
-        logLevel: LogLevel = .info,
-        retryAttempts: Int = 3,
-        timeoutSeconds: Int = 30
+        outputDirectory: String,
+        outputFormats: [OutputFormat],
+        datadogRegion: String,
+        datadogEnv: String,
+        datadogService: String,
+        mapWidth: Int,
+        mapHeight: Int,
+        routeColor: String,
+        routeWeight: Int,
+        logLevel: LogLevel,
+        retryAttempts: Int,
+        timeoutSeconds: Int
     ) {
         self.outputDirectory = outputDirectory
         self.outputFormats = outputFormats
@@ -75,6 +85,8 @@ public struct Configuration: Codable, Equatable {
         self.datadogService = datadogService
         self.mapWidth = mapWidth
         self.mapHeight = mapHeight
+        self.routeColor = routeColor
+        self.routeWeight = routeWeight
         self.logLevel = logLevel
         self.retryAttempts = retryAttempts
         self.timeoutSeconds = timeoutSeconds
@@ -90,6 +102,8 @@ public struct Configuration: Codable, Equatable {
         case datadogService
         case mapWidth
         case mapHeight
+        case routeColor
+        case routeWeight
         case logLevel
         case retryAttempts
         case timeoutSeconds
@@ -98,16 +112,18 @@ public struct Configuration: Codable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        outputDirectory = try container.decodeIfPresent(String.self, forKey: .outputDirectory) ?? "output"
-        outputFormats = try container.decodeIfPresent([OutputFormat].self, forKey: .outputFormats) ?? [.image, .html]
-        datadogRegion = try container.decodeIfPresent(String.self, forKey: .datadogRegion) ?? "us1"
-        datadogEnv = try container.decodeIfPresent(String.self, forKey: .datadogEnv) ?? "prod"
-        datadogService = try container.decodeIfPresent(String.self, forKey: .datadogService) ?? "delivery-driver-service"
-        mapWidth = try container.decodeIfPresent(Int.self, forKey: .mapWidth) ?? 800
-        mapHeight = try container.decodeIfPresent(Int.self, forKey: .mapHeight) ?? 600
-        logLevel = try container.decodeIfPresent(LogLevel.self, forKey: .logLevel) ?? .info
-        retryAttempts = try container.decodeIfPresent(Int.self, forKey: .retryAttempts) ?? 3
-        timeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? 30
+        outputDirectory = try container.decodeIfPresent(String.self, forKey: .outputDirectory) ?? Self.defaultConfig.outputDirectory
+        outputFormats = try container.decodeIfPresent([OutputFormat].self, forKey: .outputFormats) ?? Self.defaultConfig.outputFormats
+        datadogRegion = try container.decodeIfPresent(String.self, forKey: .datadogRegion) ?? Self.defaultConfig.datadogRegion
+        datadogEnv = try container.decodeIfPresent(String.self, forKey: .datadogEnv) ?? Self.defaultConfig.datadogEnv
+        datadogService = try container.decodeIfPresent(String.self, forKey: .datadogService) ?? Self.defaultConfig.datadogService
+        mapWidth = try container.decodeIfPresent(Int.self, forKey: .mapWidth) ?? Self.defaultConfig.mapWidth
+        mapHeight = try container.decodeIfPresent(Int.self, forKey: .mapHeight) ?? Self.defaultConfig.mapHeight
+        routeColor = try container.decodeIfPresent(String.self, forKey: .routeColor) ?? Self.defaultConfig.routeColor
+        routeWeight = try container.decodeIfPresent(Int.self, forKey: .routeWeight) ?? Self.defaultConfig.routeWeight
+        logLevel = try container.decodeIfPresent(LogLevel.self, forKey: .logLevel) ?? Self.defaultConfig.logLevel
+        retryAttempts = try container.decodeIfPresent(Int.self, forKey: .retryAttempts) ?? Self.defaultConfig.retryAttempts
+        timeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? Self.defaultConfig.timeoutSeconds
     }
 
     // MARK: - DataDog Configuration

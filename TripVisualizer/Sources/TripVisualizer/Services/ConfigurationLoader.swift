@@ -81,7 +81,7 @@ public struct ConfigurationLoader {
 
         // Priority 4: Default configuration
         logDebug("Using default configuration")
-        return .default
+        return .defaultConfig
     }
 
     // MARK: - Paths

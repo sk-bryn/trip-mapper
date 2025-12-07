@@ -132,7 +132,7 @@ final class VisualizationIntegrationTests: XCTestCase {
 
     func testConfigurationAffectsDataDogQuery() {
         // Given
-        var config = Configuration.default
+        var config = Configuration.defaultConfig
         config.datadogEnv = "test"
         config.datadogService = "custom-service"
         let tripId = UUID()

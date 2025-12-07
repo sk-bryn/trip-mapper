@@ -11,6 +11,12 @@ public final class MapGenerator {
     /// Google Maps API key
     private let apiKey: String
 
+    /// Route color as hex string (without #)
+    private let routeColor: String
+
+    /// Route line weight in pixels
+    private let routeWeight: Int
+
     /// Polyline encoder for path encoding
     private let polylineEncoder = PolylineEncoder()
 
@@ -23,9 +29,14 @@ public final class MapGenerator {
     // MARK: - Initialization
 
     /// Creates a new map generator
-    /// - Parameter apiKey: Google Maps API key
-    public init(apiKey: String) {
+    /// - Parameters:
+    ///   - apiKey: Google Maps API key
+    ///   - routeColor: Hex color for route polyline (default: "0000FF" blue)
+    ///   - routeWeight: Line weight in pixels (default: 4)
+    public init(apiKey: String, routeColor: String = "0000FF", routeWeight: Int = 4) {
         self.apiKey = apiKey
+        self.routeColor = routeColor.replacingOccurrences(of: "#", with: "")
+        self.routeWeight = routeWeight
     }
 
     // MARK: - HTML Generation
@@ -67,8 +78,8 @@ public final class MapGenerator {
               const path = new google.maps.Polyline({
                 path: coords,
                 geodesic: true,
-                strokeColor: "#0000FF",
-                strokeWeight: 4
+                strokeColor: "#\(routeColor)",
+                strokeWeight: \(routeWeight)
               });
               path.setMap(map);
 
@@ -170,7 +181,7 @@ public final class MapGenerator {
 
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "size", value: "\(width)x\(height)"),
-            URLQueryItem(name: "path", value: "color:0x0000FF|weight:4|enc:\(encodedPath)"),
+            URLQueryItem(name: "path", value: "color:0x\(routeColor)|weight:\(routeWeight)|enc:\(encodedPath)"),
             URLQueryItem(name: "key", value: apiKey)
         ]
 
