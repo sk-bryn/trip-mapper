@@ -7,8 +7,12 @@ A Swift command line tool that visualizes delivery trip routes by fetching log d
 - Fetch trip route data from DataDog logs
 - Generate interactive HTML maps with route polylines
 - Generate static PNG map images
-- Support for multiple output formats
+- Display delivery markers for each order stop
+- Support for multiple output formats (HTML, PNG, URLs)
 - Configurable via command line options or config file
+- Automatic retry with exponential backoff for network failures
+- Progress indicators for long-running operations
+- Graceful degradation when optional outputs fail
 
 ## Prerequisites
 
@@ -59,11 +63,30 @@ Create `~/.tripvisualizer/config.json` or `./config.json`:
   "datadogService": "delivery-driver-service",
   "mapWidth": 800,
   "mapHeight": 600,
+  "routeColor": "0000FF",
+  "routeWeight": 4,
   "logLevel": "info",
   "retryAttempts": 3,
   "timeoutSeconds": 30
 }
 ```
+
+### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `outputDirectory` | `output` | Directory for generated files |
+| `outputFormats` | `["image", "html"]` | Output formats to generate |
+| `datadogRegion` | `us1` | DataDog API region |
+| `datadogEnv` | `prod` | DataDog environment filter |
+| `datadogService` | `delivery-driver-service` | DataDog service filter |
+| `mapWidth` | `800` | Static map width in pixels |
+| `mapHeight` | `600` | Static map height in pixels |
+| `routeColor` | `0000FF` | Route polyline color (hex) |
+| `routeWeight` | `4` | Route polyline weight in pixels |
+| `logLevel` | `info` | Logging verbosity (debug, info, warning, error) |
+| `retryAttempts` | `3` | Network retry count |
+| `timeoutSeconds` | `30` | Network timeout |
 
 ## Usage
 
@@ -87,9 +110,34 @@ Arguments:
 
 Options:
   -o, --output <dir>     Output directory (default: output)
-  -f, --format <format>  Output format: image, html, url (default: image, html)
-  -v, --verbose          Enable verbose logging
+  -f, --format <format>  Output format: image, html, url, all (can be repeated)
+  -c, --config <path>    Path to configuration file
+  -v, --verbose          Enable verbose (debug) logging
+  -q, --quiet            Suppress all output except errors
   -h, --help             Show help information
+  --version              Show version information
+```
+
+### Examples
+
+```bash
+# Generate default outputs (PNG + HTML)
+./run.sh 13a40f55-d849-45f1-a8e5-fa443acedb4a
+
+# Generate only HTML
+./run.sh 13a40f55-d849-45f1-a8e5-fa443acedb4a -f html
+
+# Generate all formats
+./run.sh 13a40f55-d849-45f1-a8e5-fa443acedb4a -f all
+
+# Custom output directory
+./run.sh 13a40f55-d849-45f1-a8e5-fa443acedb4a -o ./maps
+
+# Use custom config file
+./run.sh 13a40f55-d849-45f1-a8e5-fa443acedb4a -c ./my-config.json
+
+# Verbose output for debugging
+./run.sh 13a40f55-d849-45f1-a8e5-fa443acedb4a -v
 ```
 
 ### Output

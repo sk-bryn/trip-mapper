@@ -35,7 +35,11 @@ public final class TripVisualizerService {
             configuration: configuration
         )
         self.logParser = LogParser()
-        self.mapGenerator = MapGenerator(apiKey: googleAPIKey)
+        self.mapGenerator = MapGenerator(
+            apiKey: googleAPIKey,
+            routeColor: configuration.routeColor,
+            routeWeight: configuration.routeWeight
+        )
         self.progress = ProgressIndicator()
     }
 

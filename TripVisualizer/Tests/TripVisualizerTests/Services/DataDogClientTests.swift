@@ -9,7 +9,7 @@ final class DataDogClientTests: XCTestCase {
 
     func testQueryConstructionWithDefaultConfig() {
         // Given
-        let config = Configuration.default
+        let config = Configuration.defaultConfig
         let tripId = UUID()
 
         // When
@@ -24,7 +24,7 @@ final class DataDogClientTests: XCTestCase {
 
     func testQueryConstructionWithCustomEnv() {
         // Given
-        var config = Configuration.default
+        var config = Configuration.defaultConfig
         config.datadogEnv = "test"
         let tripId = UUID()
 
@@ -38,7 +38,7 @@ final class DataDogClientTests: XCTestCase {
 
     func testQueryConstructionWithCustomService() {
         // Given
-        var config = Configuration.default
+        var config = Configuration.defaultConfig
         config.datadogService = "custom-service"
         let tripId = UUID()
 
@@ -51,7 +51,7 @@ final class DataDogClientTests: XCTestCase {
 
     func testDatadogAPIURLDefaultRegion() {
         // Given
-        let config = Configuration.default
+        let config = Configuration.defaultConfig
 
         // Then
         XCTAssertEqual(config.datadogAPIURL, "https://api.datadoghq.com")
@@ -59,7 +59,7 @@ final class DataDogClientTests: XCTestCase {
 
     func testDatadogAPIURLEURegion() {
         // Given
-        var config = Configuration.default
+        var config = Configuration.defaultConfig
         config.datadogRegion = "eu"
 
         // Then
@@ -73,7 +73,7 @@ final class DataDogClientTests: XCTestCase {
         let client = DataDogClient(
             apiKey: "test-api-key",
             appKey: "test-app-key",
-            configuration: .default
+            configuration: .defaultConfig
         )
         let tripId = UUID()
 
@@ -93,7 +93,7 @@ final class DataDogClientTests: XCTestCase {
         let client = DataDogClient(
             apiKey: "test-api-key",
             appKey: "test-app-key",
-            configuration: .default
+            configuration: .defaultConfig
         )
         let tripId = UUID()
 
@@ -117,7 +117,7 @@ final class DataDogClientTests: XCTestCase {
         let client = DataDogClient(
             apiKey: "test-api-key",
             appKey: "test-app-key",
-            configuration: .default
+            configuration: .defaultConfig
         )
 
         let jsonData = """
@@ -153,7 +153,7 @@ final class DataDogClientTests: XCTestCase {
         let client = DataDogClient(
             apiKey: "test-api-key",
             appKey: "test-app-key",
-            configuration: .default
+            configuration: .defaultConfig
         )
 
         let jsonData = """
@@ -174,7 +174,7 @@ final class DataDogClientTests: XCTestCase {
         let client = DataDogClient(
             apiKey: "test-api-key",
             appKey: "test-app-key",
-            configuration: .default
+            configuration: .defaultConfig
         )
 
         let invalidData = "not valid json".data(using: .utf8)!
@@ -190,7 +190,7 @@ final class DataDogClientTests: XCTestCase {
         let client = DataDogClient(
             apiKey: "",
             appKey: "test-app-key",
-            configuration: .default
+            configuration: .defaultConfig
         )
 
         // Then - client should be created but validation should fail on use
@@ -202,7 +202,7 @@ final class DataDogClientTests: XCTestCase {
         let client = DataDogClient(
             apiKey: "test-api-key",
             appKey: "",
-            configuration: .default
+            configuration: .defaultConfig
         )
 
         // Then - client should be created but validation should fail on use
@@ -216,7 +216,7 @@ final class DataDogClientTests: XCTestCase {
         let client = DataDogClient(
             apiKey: "test-api-key",
             appKey: "test-app-key",
-            configuration: .default
+            configuration: .defaultConfig
         )
         let logId = "test-log-id-123"
 
@@ -230,7 +230,7 @@ final class DataDogClientTests: XCTestCase {
 
     func testGenerateLogLinkEURegion() {
         // Given
-        var config = Configuration.default
+        var config = Configuration.defaultConfig
         config.datadogRegion = "eu"
         let client = DataDogClient(
             apiKey: "test-api-key",
