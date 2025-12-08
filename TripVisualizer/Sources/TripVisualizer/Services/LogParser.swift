@@ -17,6 +17,57 @@ public final class LogParser {
 
     // MARK: - Public Methods
 
+    /// Parses a DataDog log entry into a LogFragment.
+    ///
+    /// This method extracts waypoints from the log entry and creates a LogFragment
+    /// with all necessary metadata for multi-log trip aggregation.
+    ///
+    /// - Parameters:
+    ///   - logEntry: The log entry to parse
+    ///   - tripId: The trip UUID this fragment belongs to
+    ///   - logLinkGenerator: Closure to generate DataDog log link
+    /// - Returns: LogFragment containing parsed waypoints
+    /// - Throws: `TripVisualizerError` if no route data or insufficient waypoints
+    public func parseToFragment(
+        _ logEntry: DataDogLogEntry,
+        tripId: UUID,
+        logLinkGenerator: (String) -> String
+    ) throws -> LogFragment {
+        let waypoints = try parseLogEntry(logEntry)
+
+        // Parse timestamp from log entry
+        let timestamp = parseTimestamp(logEntry.attributes.timestamp)
+
+        return LogFragment(
+            id: logEntry.id,
+            tripId: tripId,
+            timestamp: timestamp,
+            waypoints: waypoints,
+            logLink: logLinkGenerator(logEntry.id)
+        )
+    }
+
+    /// Parses ISO 8601 timestamp string to Date
+    /// - Parameter timestampString: ISO 8601 formatted timestamp
+    /// - Returns: Parsed Date, or current date if parsing fails
+    private func parseTimestamp(_ timestampString: String) -> Date {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        if let date = formatter.date(from: timestampString) {
+            return date
+        }
+
+        // Try without fractional seconds
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: timestampString) {
+            return date
+        }
+
+        logWarning("Failed to parse timestamp: \(timestampString), using current date")
+        return Date()
+    }
+
     /// Parses a DataDog log entry and extracts waypoints
     /// - Parameter logEntry: The log entry to parse
     /// - Returns: Array of waypoints extracted from segment_coords

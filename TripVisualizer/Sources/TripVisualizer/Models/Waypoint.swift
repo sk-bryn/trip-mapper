@@ -5,7 +5,7 @@ import Foundation
 /// Waypoints represent geographic coordinates along a driver's journey.
 /// If `orderId` is present, the waypoint is part of a delivery to a customer.
 /// If `orderId` is absent, the waypoint represents a return-to-restaurant segment.
-public struct Waypoint: Codable, Equatable, Hashable {
+public struct Waypoint: Codable, Equatable, Hashable, Sendable {
 
     // MARK: - Properties
 
@@ -18,12 +18,16 @@ public struct Waypoint: Codable, Equatable, Hashable {
     /// Order being delivered during this segment. If nil, indicates return-to-restaurant.
     public let orderId: UUID?
 
+    /// Reference to source LogFragment ID (for tracing waypoint origin in multi-fragment trips)
+    public let fragmentId: String?
+
     // MARK: - Initialization
 
-    public init(latitude: Double, longitude: Double, orderId: UUID? = nil) {
+    public init(latitude: Double, longitude: Double, orderId: UUID? = nil, fragmentId: String? = nil) {
         self.latitude = latitude
         self.longitude = longitude
         self.orderId = orderId
+        self.fragmentId = fragmentId
     }
 
     // MARK: - Validation

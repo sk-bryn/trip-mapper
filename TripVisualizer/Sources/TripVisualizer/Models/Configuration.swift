@@ -44,6 +44,12 @@ public struct Configuration: Codable, Equatable {
     /// Network timeout in seconds (default: 30)
     public var timeoutSeconds: Int
 
+    /// Maximum log fragments to process per trip (default: 50)
+    public var maxFragments: Int
+
+    /// Time threshold for gap detection in seconds (default: 300 = 5 minutes)
+    public var gapThresholdSeconds: TimeInterval
+
     // MARK: - Default Configuration
 
     /// Default configuration with sensible defaults
@@ -59,7 +65,9 @@ public struct Configuration: Codable, Equatable {
         routeWeight: 4,
         logLevel: .info,
         retryAttempts: 3,
-        timeoutSeconds: 30
+        timeoutSeconds: 30,
+        maxFragments: 50,
+        gapThresholdSeconds: 300
     )
 
     // MARK: - Initialization
@@ -76,7 +84,9 @@ public struct Configuration: Codable, Equatable {
         routeWeight: Int,
         logLevel: LogLevel,
         retryAttempts: Int,
-        timeoutSeconds: Int
+        timeoutSeconds: Int,
+        maxFragments: Int = 50,
+        gapThresholdSeconds: TimeInterval = 300
     ) {
         self.outputDirectory = outputDirectory
         self.outputFormats = outputFormats
@@ -90,6 +100,8 @@ public struct Configuration: Codable, Equatable {
         self.logLevel = logLevel
         self.retryAttempts = retryAttempts
         self.timeoutSeconds = timeoutSeconds
+        self.maxFragments = maxFragments
+        self.gapThresholdSeconds = gapThresholdSeconds
     }
 
     // MARK: - Codable with Defaults
@@ -107,6 +119,8 @@ public struct Configuration: Codable, Equatable {
         case logLevel
         case retryAttempts
         case timeoutSeconds
+        case maxFragments
+        case gapThresholdSeconds
     }
 
     public init(from decoder: Decoder) throws {
@@ -124,6 +138,8 @@ public struct Configuration: Codable, Equatable {
         logLevel = try container.decodeIfPresent(LogLevel.self, forKey: .logLevel) ?? Self.defaultConfig.logLevel
         retryAttempts = try container.decodeIfPresent(Int.self, forKey: .retryAttempts) ?? Self.defaultConfig.retryAttempts
         timeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? Self.defaultConfig.timeoutSeconds
+        maxFragments = try container.decodeIfPresent(Int.self, forKey: .maxFragments) ?? Self.defaultConfig.maxFragments
+        gapThresholdSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .gapThresholdSeconds) ?? Self.defaultConfig.gapThresholdSeconds
     }
 
     // MARK: - DataDog Configuration
@@ -158,5 +174,10 @@ public struct Configuration: Codable, Equatable {
     /// Returns the map size string for Google Maps Static API (e.g., "800x600")
     public var mapSize: String {
         "\(mapWidth)x\(mapHeight)"
+    }
+
+    /// Whether verbose output is enabled (debug log level)
+    public var isVerbose: Bool {
+        logLevel == .debug
     }
 }

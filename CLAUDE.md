@@ -52,6 +52,7 @@ Here are module requirments each submodule should obey:
 ## Active Technologies
 - Swift 5.5+ (async/await support required) + Foundation, URLSession (no external dependencies per constitution) (001-trip-route-visualizer)
 - File system only (logs directory, output images/HTML) (001-trip-route-visualizer)
+- Swift 5.5+ (async/await support required) + Foundation, URLSession, ArgumentParser (existing) (002-multi-log-trips)
 
 ## Recent Changes
 - 001-trip-route-visualizer: Added Swift 5.5+ (async/await support required) + Foundation, URLSession (no external dependencies per constitution)

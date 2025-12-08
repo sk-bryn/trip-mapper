@@ -23,7 +23,7 @@ public final class DataDogClient {
     // MARK: - Constants
 
     private static let searchEndpoint = "/api/v2/logs/events/search"
-    private static let defaultLimit = 10
+    public static let defaultLimit = 10
 
     // MARK: - Initialization
 
@@ -46,6 +46,43 @@ public final class DataDogClient {
     }
 
     // MARK: - Public Methods
+
+    /// Fetches ALL log entries for a specific trip (up to limit).
+    ///
+    /// This method returns all matching log entries sorted by timestamp ascending,
+    /// unlike `fetchLogs` which may return only the most recent.
+    ///
+    /// - Parameters:
+    ///   - tripId: The trip UUID to search for
+    ///   - limit: Maximum logs to return (default: 50, max: 100)
+    /// - Returns: Array of DataDogLogEntry sorted by timestamp ascending
+    /// - Throws: `TripVisualizerError` on failure
+    public func fetchAllLogs(tripId: UUID, limit: Int? = nil) async throws -> [DataDogLogEntry] {
+        let effectiveLimit = min(limit ?? configuration.maxFragments, 100)
+
+        // Validate credentials
+        guard !apiKey.isEmpty else {
+            throw TripVisualizerError.missingEnvironmentVariable("DD_API_KEY")
+        }
+        guard !appKey.isEmpty else {
+            throw TripVisualizerError.missingEnvironmentVariable("DD_APP_KEY")
+        }
+
+        let request = try buildSearchRequest(tripId: tripId, limit: effectiveLimit)
+
+        let response = try await RetryHandler.withRetry(
+            retryCount: configuration.retryAttempts
+        ) {
+            let (data, response) = try await performRequest(request)
+            try validateResponse(response)
+            return try parseResponse(data)
+        }
+
+        // Sort by timestamp ascending (oldest first)
+        return response.data.sorted { entry1, entry2 in
+            entry1.attributes.timestamp < entry2.attributes.timestamp
+        }
+    }
 
     /// Fetches log entries for a specific trip
     /// - Parameter tripId: The trip UUID to search for
@@ -73,9 +110,11 @@ public final class DataDogClient {
     }
 
     /// Builds the search request for a trip
-    /// - Parameter tripId: The trip UUID to search for
+    /// - Parameters:
+    ///   - tripId: The trip UUID to search for
+    ///   - limit: Maximum number of logs to return (default: 10)
     /// - Returns: Configured URLRequest
-    public func buildSearchRequest(tripId: UUID) throws -> URLRequest {
+    public func buildSearchRequest(tripId: UUID, limit: Int = defaultLimit) throws -> URLRequest {
         let urlString = configuration.datadogAPIURL + Self.searchEndpoint
         guard let url = URL(string: urlString) else {
             throw TripVisualizerError.networkUnreachable("Invalid DataDog API URL")
@@ -96,7 +135,7 @@ public final class DataDogClient {
             ],
             "sort": "timestamp",
             "page": [
-                "limit": Self.defaultLimit
+                "limit": limit
             ]
         ]
 

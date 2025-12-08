@@ -12,6 +12,7 @@ public final class ProgressIndicator {
     public enum Stage: String, CaseIterable {
         case fetching = "Fetching logs from DataDog"
         case parsing = "Parsing route data"
+        case aggregating = "Aggregating fragments"
         case generating = "Generating map outputs"
         case downloading = "Downloading static map"
         case complete = "Complete"
@@ -20,6 +21,7 @@ public final class ProgressIndicator {
             switch self {
             case .fetching: return "🔍"
             case .parsing: return "📊"
+            case .aggregating: return "🔗"
             case .generating: return "🗺️"
             case .downloading: return "⬇️"
             case .complete: return "✅"
@@ -156,6 +158,102 @@ public final class ProgressIndicator {
         printStatus("Generated \(outputCount) output(s) for trip \(tripId) in \(durationStr)",
                    icon: useEmoji ? "✅" : "✓",
                    color: .green)
+    }
+
+    // MARK: - Multi-Fragment Progress Methods
+
+    /// Updates progress for fragment parsing
+    /// - Parameters:
+    ///   - current: Current fragment index (1-based)
+    ///   - total: Total number of fragments
+    public func updateFragmentProgress(current: Int, total: Int) {
+        guard isEnabled else { return }
+        update("Parsing fragment \(current) of \(total)")
+    }
+
+    /// Shows fragment completion with details (for verbose mode)
+    /// - Parameters:
+    ///   - fragmentId: The fragment ID
+    ///   - waypointCount: Number of waypoints in this fragment
+    ///   - timestamp: Fragment timestamp
+    public func showFragmentDetails(fragmentId: String, waypointCount: Int, timestamp: Date) {
+        guard isEnabled else { return }
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        let timestampStr = formatter.string(from: timestamp)
+
+        printStatus("Fragment \(fragmentId): \(waypointCount) waypoints @ \(timestampStr)",
+                   icon: "  ",
+                   color: .default)
+    }
+
+    /// Shows multi-fragment summary with aggregation details
+    /// - Parameters:
+    ///   - tripId: The trip ID
+    ///   - fragmentCount: Number of fragments processed
+    ///   - totalWaypoints: Total waypoints after aggregation
+    ///   - gapCount: Number of gaps detected
+    ///   - outputCount: Number of outputs generated
+    ///   - duration: Total processing time
+    public func showMultiFragmentSummary(
+        tripId: String,
+        fragmentCount: Int,
+        totalWaypoints: Int,
+        gapCount: Int,
+        outputCount: Int,
+        duration: TimeInterval
+    ) {
+        guard isEnabled else { return }
+
+        let durationStr = String(format: "%.2fs", duration)
+
+        // Main summary line
+        printStatus("Generated \(outputCount) output(s) for trip \(tripId) in \(durationStr)",
+                   icon: useEmoji ? "✅" : "✓",
+                   color: .green)
+
+        // Multi-fragment details (only if more than one fragment)
+        if fragmentCount > 1 {
+            printStatus("Processed \(fragmentCount) fragments with \(totalWaypoints) total waypoints",
+                       icon: "  ",
+                       color: .default)
+
+            if gapCount > 0 {
+                printStatus("\(gapCount) gap(s) detected and rendered as dashed lines",
+                           icon: useEmoji ? "⚠️" : "!",
+                           color: .yellow)
+            }
+        }
+    }
+
+    /// Shows truncation warning
+    /// - Parameter limit: The fragment limit that was reached
+    public func showTruncationWarning(limit: Int) {
+        guard isEnabled else {
+            logWarning("Trip truncated to \(limit) fragments (limit reached)")
+            return
+        }
+
+        printStatus("Trip truncated to \(limit) fragments (limit reached)",
+                   icon: useEmoji ? "⚠️" : "!",
+                   color: .yellow)
+    }
+
+    /// Shows partial failure warning
+    /// - Parameters:
+    ///   - failedCount: Number of fragments that failed
+    ///   - successCount: Number of fragments successfully processed
+    public func showPartialFailureWarning(failedCount: Int, successCount: Int) {
+        guard isEnabled else {
+            logWarning("\(failedCount) fragment(s) failed to process, continuing with \(successCount)")
+            return
+        }
+
+        printStatus("\(failedCount) fragment(s) failed to process, continuing with \(successCount)",
+                   icon: useEmoji ? "⚠️" : "!",
+                   color: .yellow)
     }
 
     // MARK: - Private Methods

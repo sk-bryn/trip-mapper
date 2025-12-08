@@ -39,7 +39,166 @@ public final class MapGenerator {
         self.routeWeight = routeWeight
     }
 
+    // MARK: - Constants for Gap Rendering
+
+    /// Gap segment color (gray)
+    private static let gapColor = "808080"
+
+    /// Gap segment opacity
+    private static let gapOpacity = 0.6
+
     // MARK: - HTML Generation
+
+    /// Generates HTML content with interactive Google Map supporting route segments.
+    ///
+    /// Continuous segments are rendered as solid lines, gap segments as dashed lines.
+    ///
+    /// - Parameters:
+    ///   - tripId: Trip UUID for the title
+    ///   - segments: Route segments with type information
+    /// - Returns: HTML string
+    /// - Throws: `TripVisualizerError` if segments are empty
+    public func generateHTML(tripId: UUID, segments: [RouteSegment]) throws -> String {
+        guard !segments.isEmpty else {
+            throw TripVisualizerError.noRouteData
+        }
+
+        let allWaypoints = segments.flatMap { $0.waypoints }
+        guard !allWaypoints.isEmpty else {
+            throw TripVisualizerError.noRouteData
+        }
+
+        let hasGaps = segments.contains { $0.isGap }
+        let segmentsJS = generateSegmentsJS(segments)
+        let deliveryPoints = findDeliveryPoints(allWaypoints)
+        let deliveryMarkersJS = generateDeliveryMarkersJS(deliveryPoints)
+        let legendHTML = hasGaps ? generateLegendHTML() : ""
+
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Trip Route: \(tripId.uuidString)</title>
+          <style>
+            #map { height: 100vh; width: 100%; }
+            .legend {
+              position: absolute;
+              bottom: 20px;
+              left: 20px;
+              background: white;
+              padding: 10px 15px;
+              border-radius: 4px;
+              box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+              font-family: Arial, sans-serif;
+              font-size: 12px;
+              z-index: 1;
+            }
+            .legend-item { display: flex; align-items: center; margin: 5px 0; }
+            .solid-line { width: 30px; height: 3px; background: #\(routeColor); margin-right: 8px; }
+            .dashed-line { width: 30px; height: 3px; background: repeating-linear-gradient(90deg, #\(Self.gapColor) 0, #\(Self.gapColor) 5px, transparent 5px, transparent 10px); margin-right: 8px; }
+          </style>
+        </head>
+        <body>
+          <div id="map"></div>
+        \(legendHTML)
+          <script>
+            function initMap() {
+              const firstCoord = {lat: \(allWaypoints[0].latitude), lng: \(allWaypoints[0].longitude)};
+              const map = new google.maps.Map(document.getElementById("map"), {
+                zoom: 12,
+                center: firstCoord
+              });
+
+              // Render segments
+        \(segmentsJS)
+
+              // Start marker
+              new google.maps.Marker({
+                position: firstCoord,
+                map: map,
+                icon: "http://maps.google.com/mapfiles/ms/icons/green-dot.png",
+                title: "Start"
+              });
+
+              // End marker
+              const lastCoord = {lat: \(allWaypoints.last!.latitude), lng: \(allWaypoints.last!.longitude)};
+              new google.maps.Marker({
+                position: lastCoord,
+                map: map,
+                icon: "http://maps.google.com/mapfiles/ms/icons/red-dot.png",
+                title: "End"
+              });
+
+              // Delivery markers
+        \(deliveryMarkersJS)
+
+              // Fit bounds
+              const bounds = new google.maps.LatLngBounds();
+              \(coordinatesToJSON(allWaypoints)).forEach(c => bounds.extend(c));
+              map.fitBounds(bounds);
+            }
+          </script>
+          <script async defer
+            src="https://maps.googleapis.com/maps/api/js?key=\(apiKey)&callback=initMap">
+          </script>
+        </body>
+        </html>
+        """
+    }
+
+    /// Generates JavaScript for rendering route segments
+    private func generateSegmentsJS(_ segments: [RouteSegment]) -> String {
+        segments.enumerated().map { (index, segment) in
+            let coordsJSON = coordinatesToJSON(segment.waypoints)
+            let color = segment.isGap ? Self.gapColor : routeColor
+            let opacity = segment.isGap ? Self.gapOpacity : 1.0
+
+            if segment.isGap {
+                return """
+                      // Gap segment \(index)
+                      const gapPath\(index) = new google.maps.Polyline({
+                        path: \(coordsJSON),
+                        geodesic: true,
+                        strokeColor: "#\(color)",
+                        strokeOpacity: 0,
+                        strokeWeight: \(routeWeight),
+                        icons: [{
+                          icon: {
+                            path: 'M 0,-1 0,1',
+                            strokeOpacity: \(opacity),
+                            scale: 4
+                          },
+                          offset: '0',
+                          repeat: '20px'
+                        }]
+                      });
+                      gapPath\(index).setMap(map);
+                """
+            } else {
+                return """
+                      // Continuous segment \(index)
+                      const path\(index) = new google.maps.Polyline({
+                        path: \(coordsJSON),
+                        geodesic: true,
+                        strokeColor: "#\(color)",
+                        strokeOpacity: \(opacity),
+                        strokeWeight: \(routeWeight)
+                      });
+                      path\(index).setMap(map);
+                """
+            }
+        }.joined(separator: "\n")
+    }
+
+    /// Generates legend HTML for gap indication
+    private func generateLegendHTML() -> String {
+        """
+          <div class="legend">
+            <div class="legend-item"><span class="solid-line"></span> Route data</div>
+            <div class="legend-item"><span class="dashed-line"></span> Gap (missing data)</div>
+          </div>
+        """
+    }
 
     /// Generates HTML content with interactive Google Map
     /// - Parameters:
@@ -140,14 +299,18 @@ public final class MapGenerator {
         }.joined(separator: "\n")
     }
 
-    /// Writes HTML content to a file
+    /// Writes HTML content to a file with support for route segments.
+    ///
+    /// This is the preferred method for multi-log trips as it properly
+    /// renders gap segments with dashed lines.
+    ///
     /// - Parameters:
     ///   - tripId: Trip UUID for the title
-    ///   - waypoints: Array of waypoints to display
+    ///   - segments: Route segments with type information
     ///   - path: Output file path
     /// - Throws: `TripVisualizerError` on file write failure
-    public func writeHTML(tripId: UUID, waypoints: [Waypoint], to path: String) throws {
-        let html = try generateHTML(tripId: tripId, waypoints: waypoints)
+    public func writeHTML(tripId: UUID, segments: [RouteSegment], to path: String) throws {
+        let html = try generateHTML(tripId: tripId, segments: segments)
 
         do {
             try html.write(toFile: path, atomically: true, encoding: .utf8)
@@ -160,9 +323,87 @@ public final class MapGenerator {
         }
     }
 
+    /// Writes HTML content to a file (backward compatible)
+    /// - Parameters:
+    ///   - tripId: Trip UUID for the title
+    ///   - waypoints: Array of waypoints to display
+    ///   - path: Output file path
+    /// - Throws: `TripVisualizerError` on file write failure
+    public func writeHTML(tripId: UUID, waypoints: [Waypoint], to path: String) throws {
+        // Wrap in single continuous segment for backward compatibility
+        let segment = RouteSegment(waypoints: waypoints, type: .continuous, sourceFragmentId: nil)
+        try writeHTML(tripId: tripId, segments: [segment], to: path)
+    }
+
     // MARK: - Static Maps URL Generation
 
-    /// Generates a Google Static Maps API URL for PNG download
+    /// Generates a Google Static Maps API URL for PNG download with segment support.
+    ///
+    /// Gap segments are rendered in gray color to differentiate from continuous segments.
+    /// Note: Google Static Maps API doesn't support dashed lines, so we use color differentiation.
+    ///
+    /// - Parameters:
+    ///   - segments: Route segments with type information
+    ///   - width: Image width in pixels (default: 640)
+    ///   - height: Image height in pixels (default: 480)
+    /// - Returns: Static Maps URL or nil if segments are empty
+    public func generateStaticMapsURL(
+        segments: [RouteSegment],
+        width: Int = defaultWidth,
+        height: Int = defaultHeight
+    ) -> URL? {
+        guard !segments.isEmpty else { return nil }
+
+        let allWaypoints = segments.flatMap { $0.waypoints }
+        guard !allWaypoints.isEmpty else { return nil }
+
+        var components = URLComponents(string: Self.staticMapsBaseURL)!
+
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "size", value: "\(width)x\(height)"),
+            URLQueryItem(name: "key", value: apiKey)
+        ]
+
+        // Add path for each segment with appropriate color
+        for segment in segments {
+            let color = segment.isGap ? Self.gapColor : routeColor
+            let encodedPath = polylineEncoder.encode(segment.waypoints)
+            queryItems.append(URLQueryItem(
+                name: "path",
+                value: "color:0x\(color)|weight:\(routeWeight)|enc:\(encodedPath)"
+            ))
+        }
+
+        // Add start marker (green)
+        if let first = allWaypoints.first {
+            queryItems.append(URLQueryItem(
+                name: "markers",
+                value: "color:green|label:S|\(first.latitude),\(first.longitude)"
+            ))
+        }
+
+        // Add end marker (red)
+        if let last = allWaypoints.last, allWaypoints.count > 1 {
+            queryItems.append(URLQueryItem(
+                name: "markers",
+                value: "color:red|label:E|\(last.latitude),\(last.longitude)"
+            ))
+        }
+
+        // Add delivery markers (orange with numbers)
+        let deliveryPoints = findDeliveryPoints(allWaypoints)
+        for point in deliveryPoints {
+            queryItems.append(URLQueryItem(
+                name: "markers",
+                value: "color:orange|label:\(point.orderNumber)|\(point.waypoint.latitude),\(point.waypoint.longitude)"
+            ))
+        }
+
+        components.queryItems = queryItems
+        return components.url
+    }
+
+    /// Generates a Google Static Maps API URL for PNG download (backward compatible)
     /// - Parameters:
     ///   - waypoints: Array of waypoints to display
     ///   - width: Image width in pixels (default: 640)
@@ -175,43 +416,9 @@ public final class MapGenerator {
     ) -> URL? {
         guard !waypoints.isEmpty else { return nil }
 
-        var components = URLComponents(string: Self.staticMapsBaseURL)!
-
-        let encodedPath = polylineEncoder.encode(waypoints)
-
-        var queryItems: [URLQueryItem] = [
-            URLQueryItem(name: "size", value: "\(width)x\(height)"),
-            URLQueryItem(name: "path", value: "color:0x\(routeColor)|weight:\(routeWeight)|enc:\(encodedPath)"),
-            URLQueryItem(name: "key", value: apiKey)
-        ]
-
-        // Add start marker (green)
-        if let first = waypoints.first {
-            queryItems.append(URLQueryItem(
-                name: "markers",
-                value: "color:green|label:S|\(first.latitude),\(first.longitude)"
-            ))
-        }
-
-        // Add end marker (red)
-        if let last = waypoints.last, waypoints.count > 1 {
-            queryItems.append(URLQueryItem(
-                name: "markers",
-                value: "color:red|label:E|\(last.latitude),\(last.longitude)"
-            ))
-        }
-
-        // Add delivery markers (orange with numbers)
-        let deliveryPoints = findDeliveryPoints(waypoints)
-        for point in deliveryPoints {
-            queryItems.append(URLQueryItem(
-                name: "markers",
-                value: "color:orange|label:\(point.orderNumber)|\(point.waypoint.latitude),\(point.waypoint.longitude)"
-            ))
-        }
-
-        components.queryItems = queryItems
-        return components.url
+        // Wrap in single continuous segment
+        let segment = RouteSegment(waypoints: waypoints, type: .continuous, sourceFragmentId: nil)
+        return generateStaticMapsURL(segments: [segment], width: width, height: height)
     }
 
     /// Downloads PNG image from Static Maps API
