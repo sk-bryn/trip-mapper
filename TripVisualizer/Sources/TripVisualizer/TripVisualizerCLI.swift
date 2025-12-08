@@ -5,6 +5,8 @@ import ArgumentParser
 ///
 /// Provides commands for visualizing trip routes from DataDog logs
 /// onto Google Maps.
+@main
+@available(macOS 10.15, macCatalyst 13, iOS 13, tvOS 13, watchOS 6, *)
 struct TripVisualizerCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "tripvisualizer",
@@ -189,6 +191,3 @@ struct TripVisualizerCLI: AsyncParsableCommand {
         return result
     }
 }
-
-// Entry point
-TripVisualizerCLI.main()
