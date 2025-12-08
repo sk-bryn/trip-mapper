@@ -40,7 +40,7 @@ Based on plan.md project structure:
 
 - [ ] T005 Extend Waypoint model with optional fragmentId property in TripVisualizer/Sources/TripVisualizer/Models/Waypoint.swift
 - [ ] T006 Create FragmentAggregator service in TripVisualizer/Sources/TripVisualizer/Services/FragmentAggregator.swift
-- [ ] T007 Add maxFragments and gapThresholdSeconds to Configuration in TripVisualizer/Sources/TripVisualizer/Models/Configuration.swift
+- [ ] T007 Add maxLogs and gapThresholdSeconds to Configuration in TripVisualizer/Sources/TripVisualizer/Models/Configuration.swift
 - [ ] T008 Update ConfigurationLoader defaults for new config options in TripVisualizer/Sources/TripVisualizer/Services/ConfigurationLoader.swift
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
@@ -73,7 +73,7 @@ Based on plan.md project structure:
 - [ ] T019 [US1] Add dashed line rendering for gap segments in MapGenerator in TripVisualizer/Sources/TripVisualizer/Services/MapGenerator.swift
 - [ ] T020 [US1] Update static map generation to use gray color for gaps in MapGenerator in TripVisualizer/Sources/TripVisualizer/Services/MapGenerator.swift
 - [ ] T021 [US1] Update TripVisualizerService to use multi-fragment flow in TripVisualizer/Sources/TripVisualizer/Services/TripVisualizer.swift
-- [ ] T022 [US1] Update Trip model to support fragments and UnifiedRoute in TripVisualizer/Sources/TripVisualizer/Models/Trip.swift
+- [x] T022 [US1] ~~Update Trip model to support fragments and UnifiedRoute~~ N/A - Trip model kept unchanged; UnifiedRoute handles fragment aggregation independently
 - [ ] T023 [US1] Implement 50-fragment limit with warning in TripVisualizerService in TripVisualizer/Sources/TripVisualizer/Services/TripVisualizer.swift
 - [ ] T024 [US1] Implement partial failure handling in TripVisualizerService in TripVisualizer/Sources/TripVisualizer/Services/TripVisualizer.swift
 

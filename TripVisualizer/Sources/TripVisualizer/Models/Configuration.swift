@@ -50,7 +50,7 @@ public struct Configuration: Codable, Equatable {
     /// Time threshold for gap detection in seconds (default: 300 = 5 minutes)
     public var gapThresholdSeconds: TimeInterval
 
-    /// Generate outputs for each individual log in addition to aggregate (default: false)
+    /// Generate outputs for each individual log in addition to aggregate (default: true)
     /// When true, creates HTML/PNG/URL for each log named with the log's timestamp,
     /// then produces the aggregate results as usual.
     public var perLogOutput: Bool
@@ -73,7 +73,7 @@ public struct Configuration: Codable, Equatable {
         timeoutSeconds: 30,
         maxLogs: 50,
         gapThresholdSeconds: 300,
-        perLogOutput: false
+        perLogOutput: true
     )
 
     // MARK: - Initialization
@@ -93,7 +93,7 @@ public struct Configuration: Codable, Equatable {
         timeoutSeconds: Int,
         maxLogs: Int = 50,
         gapThresholdSeconds: TimeInterval = 300,
-        perLogOutput: Bool = false
+        perLogOutput: Bool = true
     ) {
         self.outputDirectory = outputDirectory
         self.outputFormats = outputFormats

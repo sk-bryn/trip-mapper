@@ -299,7 +299,7 @@ final class MultiLogTripTests: XCTestCase {
 
     func testConfigurationPerLogOutputDefault() {
         let config = Configuration.defaultConfig
-        XCTAssertFalse(config.perLogOutput)
+        XCTAssertTrue(config.perLogOutput)
     }
 
     func testConfigurationPerLogOutputDecoding() throws {

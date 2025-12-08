@@ -4,8 +4,8 @@ import Foundation
 ///
 /// Coordinates the full pipeline:
 /// 1. Fetches ALL logs from DataDog for a trip (multi-log support)
-/// 2. Parses waypoints from each log into LogFragments
-/// 3. Aggregates fragments into a UnifiedRoute
+/// 2. Parses waypoints from each log into route segments
+/// 3. Aggregates route segments into a UnifiedRoute
 /// 4. Generates map outputs in requested formats (with gap rendering)
 public final class TripVisualizerService {
 
@@ -67,8 +67,8 @@ public final class TripVisualizerService {
 
     /// Visualizes a trip by fetching ALL logs and generating outputs.
     ///
-    /// This method supports multi-fragment trips where app crashes may have
-    /// created multiple log entries. All log fragments are fetched, combined,
+    /// This method supports multi-log trips where app crashes may have
+    /// created multiple log entries. All route segments are fetched, combined,
     /// and visualized with gap detection.
     ///
     /// - Parameter tripId: The trip UUID to visualize
@@ -95,7 +95,7 @@ public final class TripVisualizerService {
             throw error
         }
 
-        // Step 2: Parse each log entry into a LogFragment
+        // Step 2: Parse each log entry into a route segment
         // Only logs with valid coordinate data are counted
         progress.start(.parsing)
         var logs: [LogFragment] = []
@@ -140,16 +140,19 @@ public final class TripVisualizerService {
         logInfo("Found \(logs.count) log(s) with route data")
         progress.complete("Parsed \(logs.count) log(s)")
 
-        // Step 3: Generate per-log outputs if enabled
+        // Step 3: Prepare output directory (clean any previous run)
+        try prepareOutputDirectory(for: tripId)
+
+        // Step 4: Generate per-log outputs if enabled
         var perLogOutputCount = 0
         if configuration.perLogOutput && logs.count > 0 {
             progress.start(.generating, showSpinner: false)
-            progress.update("Generating per-log outputs...")
-            perLogOutputCount = try await generatePerLogOutputs(tripId: tripId, logs: logs)
-            progress.complete("Generated \(perLogOutputCount) per-log output(s)")
+            progress.update("Generating route segment outputs...")
+            perLogOutputCount = try await generateRouteSegmentOutputs(tripId: tripId, logs: logs)
+            progress.complete("Generated \(perLogOutputCount) route segment output(s)")
         }
 
-        // Step 4: Aggregate logs into unified route
+        // Step 5: Aggregate logs into unified route
         progress.start(.aggregating)
         let unifiedRoute: UnifiedRoute
         do {
@@ -157,7 +160,7 @@ public final class TripVisualizerService {
                 fragments: logs,
                 gapThreshold: configuration.gapThresholdSeconds
             )
-            logInfo("Aggregated \(unifiedRoute.totalWaypointCount) waypoints from \(unifiedRoute.fragmentCount) log(s)")
+            logInfo("Aggregated \(unifiedRoute.totalWaypointCount) waypoints from \(unifiedRoute.fragmentCount) route segment(s)")
 
             if unifiedRoute.hasGaps {
                 logInfo("Detected \(unifiedRoute.gapCount) gap(s) in route")
@@ -170,13 +173,13 @@ public final class TripVisualizerService {
             throw error
         }
 
-        // Step 4: Create metadata for reporting
+        // Step 6: Create metadata for reporting
         let metadata = TripMetadata.from(
             logs: logs,
             truncated: truncated
         )
 
-        // Step 5: Generate outputs with segment support
+        // Step 7: Generate outputs with segment support
         progress.start(.generating)
         let outputCount = try await generateOutputsWithSegments(
             tripId: tripId,
@@ -412,7 +415,33 @@ public final class TripVisualizerService {
         return formatter.date(from: timestamp) ?? Date()
     }
 
-    // MARK: - Multi-Fragment Output Generation
+    // MARK: - Output Directory Management
+
+    /// Prepares the output directory for a trip, removing any existing output
+    /// - Parameter tripId: Trip UUID
+    /// - Throws: `TripVisualizerError` if directory cannot be created
+    private func prepareOutputDirectory(for tripId: UUID) throws {
+        let baseOutputDir = configuration.outputDirectory
+        let tripOutputDir = (baseOutputDir as NSString).appendingPathComponent(tripId.uuidString)
+        let fileManager = FileManager.default
+
+        do {
+            // Remove existing output directory if it exists (clean re-run)
+            if fileManager.fileExists(atPath: tripOutputDir) {
+                try fileManager.removeItem(atPath: tripOutputDir)
+                logDebug("Removed existing output directory: \(tripOutputDir)")
+            }
+            try fileManager.createDirectory(atPath: tripOutputDir, withIntermediateDirectories: true)
+            logDebug("Created output directory: \(tripOutputDir)")
+        } catch {
+            throw TripVisualizerError.cannotWriteOutput(
+                path: tripOutputDir,
+                reason: "Cannot prepare output directory: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    // MARK: - Multi-Segment Output Generation
 
     /// Generates all requested output formats with segment support
     /// - Parameters:
@@ -426,21 +455,9 @@ public final class TripVisualizerService {
         route: UnifiedRoute,
         metadata: TripMetadata
     ) async throws -> Int {
-        // Create output directory structure: output/<tripId>/
+        // Output directory is already prepared by prepareOutputDirectory()
         let baseOutputDir = configuration.outputDirectory
         let tripOutputDir = (baseOutputDir as NSString).appendingPathComponent(tripId.uuidString)
-        let fileManager = FileManager.default
-
-        do {
-            if !fileManager.fileExists(atPath: tripOutputDir) {
-                try fileManager.createDirectory(atPath: tripOutputDir, withIntermediateDirectories: true)
-            }
-        } catch {
-            throw TripVisualizerError.cannotWriteOutput(
-                path: tripOutputDir,
-                reason: "Cannot create output directory: \(error.localizedDescription)"
-            )
-        }
 
         let baseName = tripId.uuidString
         let outputDir = tripOutputDir
@@ -505,29 +522,29 @@ public final class TripVisualizerService {
         return successCount
     }
 
-    // MARK: - Per-Log Output Generation
+    // MARK: - Route Segment Output Generation
 
-    /// Generates outputs for each individual log, named by timestamp
+    /// Generates outputs for each individual log (route segment), named by timestamp
     /// - Parameters:
     ///   - tripId: Trip UUID
-    ///   - logs: Array of log fragments to generate outputs for
+    ///   - logs: Array of route segments to generate outputs for
     /// - Returns: Total number of outputs generated across all logs
     @discardableResult
-    private func generatePerLogOutputs(tripId: UUID, logs: [LogFragment]) async throws -> Int {
-        // Create output directory: output/<tripId>/per-log/
+    private func generateRouteSegmentOutputs(tripId: UUID, logs: [LogFragment]) async throws -> Int {
+        // Create output directory: output/<tripId>/route-segments/
         let baseOutputDir = configuration.outputDirectory
         let tripOutputDir = (baseOutputDir as NSString).appendingPathComponent(tripId.uuidString)
-        let perLogDir = (tripOutputDir as NSString).appendingPathComponent("per-log")
+        let routeSegmentsDir = (tripOutputDir as NSString).appendingPathComponent("route-segments")
         let fileManager = FileManager.default
 
         do {
-            if !fileManager.fileExists(atPath: perLogDir) {
-                try fileManager.createDirectory(atPath: perLogDir, withIntermediateDirectories: true)
+            if !fileManager.fileExists(atPath: routeSegmentsDir) {
+                try fileManager.createDirectory(atPath: routeSegmentsDir, withIntermediateDirectories: true)
             }
         } catch {
             throw TripVisualizerError.cannotWriteOutput(
-                path: perLogDir,
-                reason: "Cannot create per-log output directory: \(error.localizedDescription)"
+                path: routeSegmentsDir,
+                reason: "Cannot create route-segments output directory: \(error.localizedDescription)"
             )
         }
 
@@ -547,13 +564,13 @@ public final class TripVisualizerService {
                 do {
                     switch format {
                     case .html:
-                        let path = (perLogDir as NSString).appendingPathComponent("\(baseName).html")
+                        let path = (routeSegmentsDir as NSString).appendingPathComponent("\(baseName).html")
                         try mapGenerator.writeHTML(tripId: tripId, waypoints: log.waypoints, to: path)
                         logDebug("Per-log HTML written: \(path)")
                         totalOutputs += 1
 
                     case .image:
-                        let path = (perLogDir as NSString).appendingPathComponent("\(baseName).png")
+                        let path = (routeSegmentsDir as NSString).appendingPathComponent("\(baseName).png")
                         guard let url = mapGenerator.generateStaticMapsURL(waypoints: log.waypoints) else {
                             continue
                         }
@@ -575,7 +592,7 @@ public final class TripVisualizerService {
                             urlContent += "Google Maps URL:\n\(webURL.absoluteString)\n"
                         }
 
-                        let path = (perLogDir as NSString).appendingPathComponent("\(baseName)_urls.txt")
+                        let path = (routeSegmentsDir as NSString).appendingPathComponent("\(baseName)_urls.txt")
                         try urlContent.write(toFile: path, atomically: true, encoding: .utf8)
                         logDebug("Per-log URLs written: \(path)")
                         totalOutputs += 1
@@ -586,7 +603,7 @@ public final class TripVisualizerService {
             }
         }
 
-        logInfo("Generated \(totalOutputs) per-log outputs in \(perLogDir)")
+        logInfo("Generated \(totalOutputs) route segment outputs in \(routeSegmentsDir)")
         return totalOutputs
     }
 

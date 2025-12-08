@@ -79,7 +79,7 @@ As a trip analyst running the visualizer, I want to see progress feedback when m
 - **FR-008**: System MUST handle partial failures gracefully, warning the user if some fragments failed but proceeding with available data.
 - **FR-009**: System MUST indicate in the output if the visualized route is incomplete due to failed fragment downloads.
 - **FR-010**: System MUST retain each log fragment as a separate data structure, allowing individual fragments to be inspected or recreated independently from the combined visualization.
-- **FR-011**: System MUST limit processing to a maximum of 50 log fragments per tripId and warn the user if additional fragments exist beyond this limit.
+- **FR-011**: System MUST limit processing to a maximum of 50 logs per tripId and warn the user if additional logs exist beyond this limit.
 - **FR-012**: System MUST visually distinguish gaps between log fragments (where data is missing) by rendering a dashed line connecting the end of one fragment to the start of the next.
 - **FR-013**: System MUST display detailed fragment metadata (timestamps, waypoint counts per fragment) when verbose mode is enabled.
 

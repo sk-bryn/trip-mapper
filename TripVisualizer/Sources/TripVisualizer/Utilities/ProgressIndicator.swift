@@ -12,7 +12,7 @@ public final class ProgressIndicator {
     public enum Stage: String, CaseIterable {
         case fetching = "Fetching logs from DataDog"
         case parsing = "Parsing route data"
-        case aggregating = "Aggregating fragments"
+        case aggregating = "Aggregating route segments"
         case generating = "Generating map outputs"
         case downloading = "Downloading static map"
         case complete = "Complete"
