@@ -1,0 +1,14 @@
+{
+  "outputDirectory": "output",
+  "outputFormats": ["image", "html"],
+  "datadogRegion": "us1",
+  "datadogEnv": "prod",
+  "datadogService": "delivery-driver-service",
+  "mapWidth": 800,
+  "mapHeight": 600,
+  "routeColor": "0000FF",
+  "routeWeight": 4,
+  "logLevel": "info",
+  "retryAttempts": 3,
+  "timeoutSeconds": 30
+}
