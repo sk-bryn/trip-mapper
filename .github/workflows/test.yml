@@ -1,0 +1,116 @@
+name: Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: macos-14
+
+    defaults:
+      run:
+        working-directory: TripVisualizer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '5.9'
+
+      - name: Build
+        run: swift build
+
+      - name: Run Tests
+        id: test
+        run: |
+          # Run tests and capture output
+          set +e
+          TEST_OUTPUT=$(swift test 2>&1)
+          TEST_EXIT_CODE=$?
+          set -e
+
+          # Save full output for later
+          echo "$TEST_OUTPUT"
+
+          # Parse test results
+          TOTAL_TESTS=$(echo "$TEST_OUTPUT" | grep -oE "Executed [0-9]+ tests" | head -1 | grep -oE "[0-9]+")
+          FAILURES=$(echo "$TEST_OUTPUT" | grep -oE "with [0-9]+ failures" | head -1 | grep -oE "[0-9]+")
+
+          # Default to 0 if not found
+          TOTAL_TESTS=${TOTAL_TESTS:-0}
+          FAILURES=${FAILURES:-0}
+          PASSED=$((TOTAL_TESTS - FAILURES))
+
+          # Extract failing test names if any
+          FAILING_TESTS=""
+          if [ "$FAILURES" -gt 0 ]; then
+            FAILING_TESTS=$(echo "$TEST_OUTPUT" | grep -E "^\s*Test Case.*failed" | sed 's/.*\[\(.*\)\].*/\1/' || true)
+          fi
+
+          # Set outputs
+          echo "total=$TOTAL_TESTS" >> $GITHUB_OUTPUT
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILURES" >> $GITHUB_OUTPUT
+          echo "exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          # Save failing tests to file for multiline output
+          echo "$FAILING_TESTS" > /tmp/failing_tests.txt
+
+          # Exit with test exit code
+          exit $TEST_EXIT_CODE
+
+      - name: Generate Test Summary
+        if: always()
+        run: |
+          # Read test results
+          TOTAL="${{ steps.test.outputs.total }}"
+          PASSED="${{ steps.test.outputs.passed }}"
+          FAILED="${{ steps.test.outputs.failed }}"
+          EXIT_CODE="${{ steps.test.outputs.exit_code }}"
+
+          # Default values if empty
+          TOTAL=${TOTAL:-0}
+          PASSED=${PASSED:-0}
+          FAILED=${FAILED:-0}
+
+          # Determine status emoji
+          if [ "$EXIT_CODE" = "0" ]; then
+            STATUS_EMOJI="✅"
+            STATUS_TEXT="All tests passed"
+          else
+            STATUS_EMOJI="❌"
+            STATUS_TEXT="Some tests failed"
+          fi
+
+          # Write summary header
+          echo "## $STATUS_EMOJI Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Write summary table
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Tests | $TOTAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # If there are failures, list them
+          if [ "$FAILED" -gt 0 ] && [ -f /tmp/failing_tests.txt ]; then
+            echo "### Failed Tests" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            while IFS= read -r test; do
+              if [ -n "$test" ]; then
+                echo "- \`$test\`" >> $GITHUB_STEP_SUMMARY
+              fi
+            done < /tmp/failing_tests.txt
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Add footer
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Run on \`${{ runner.os }}\` with Swift \`$(swift --version | head -1)\`*" >> $GITHUB_STEP_SUMMARY
