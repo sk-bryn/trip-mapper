@@ -53,6 +53,7 @@ Here are module requirments each submodule should obey:
 - Swift 5.5+ (async/await support required) + Foundation, URLSession (no external dependencies per constitution) (001-trip-route-visualizer)
 - File system only (logs directory, output images/HTML) (001-trip-route-visualizer)
 - Swift 5.5+ (async/await support required) + Foundation, URLSession, ArgumentParser (existing) (002-multi-log-trips)
+- File system only (output directory alongside map files) (003-log-data-export)
 
 ## Recent Changes
 - 001-trip-route-visualizer: Added Swift 5.5+ (async/await support required) + Foundation, URLSession (no external dependencies per constitution)
