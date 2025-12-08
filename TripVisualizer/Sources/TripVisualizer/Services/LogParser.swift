@@ -17,6 +17,98 @@ public final class LogParser {
 
     // MARK: - Public Methods
 
+    /// Parses a DataDog log entry into a LogFragment.
+    ///
+    /// This method extracts waypoints from the log entry and creates a LogFragment
+    /// with all necessary metadata for multi-log trip aggregation.
+    ///
+    /// Logs without coordinate data are silently ignored and return nil.
+    ///
+    /// - Parameters:
+    ///   - logEntry: The log entry to parse
+    ///   - tripId: The trip UUID this fragment belongs to
+    ///   - logLinkGenerator: Closure to generate DataDog log link
+    /// - Returns: LogFragment if log contains valid coordinate data, nil otherwise
+    public func parseToLogFragment(
+        _ logEntry: DataDogLogEntry,
+        tripId: UUID,
+        logLinkGenerator: (String) -> String
+    ) -> LogFragment? {
+        guard let waypoints = extractWaypointsIfPresent(from: logEntry) else {
+            // Log has no coordinate data - silently ignore
+            return nil
+        }
+
+        // Parse timestamp from log entry
+        let timestamp = parseTimestamp(logEntry.attributes.timestamp)
+
+        return LogFragment(
+            id: logEntry.id,
+            tripId: tripId,
+            timestamp: timestamp,
+            waypoints: waypoints,
+            logLink: logLinkGenerator(logEntry.id)
+        )
+    }
+
+    /// Extracts waypoints from a log entry if coordinate data is present.
+    /// - Parameter logEntry: The log entry to parse
+    /// - Returns: Array of waypoints if valid coordinate data exists, nil otherwise
+    private func extractWaypointsIfPresent(from logEntry: DataDogLogEntry) -> [Waypoint]? {
+        guard let segmentCoords = findSegmentCoords(in: logEntry.attributes.attributes) else {
+            return nil
+        }
+
+        var waypoints: [Waypoint] = []
+        for (index, coord) in segmentCoords.enumerated() {
+            if let waypoint = parseCoordinate(coord, index: index) {
+                waypoints.append(waypoint)
+            }
+        }
+
+        // Need minimum waypoints for a valid route
+        guard waypoints.count >= Self.minimumWaypoints else {
+            return nil
+        }
+
+        return waypoints
+    }
+
+    /// Legacy method - Parses a DataDog log entry into a LogFragment.
+    /// - Throws: `TripVisualizerError` if no route data or insufficient waypoints
+    @available(*, deprecated, message: "Use parseToLogFragment which returns nil for logs without coordinates")
+    public func parseToFragment(
+        _ logEntry: DataDogLogEntry,
+        tripId: UUID,
+        logLinkGenerator: (String) -> String
+    ) throws -> LogFragment {
+        guard let fragment = parseToLogFragment(logEntry, tripId: tripId, logLinkGenerator: logLinkGenerator) else {
+            throw TripVisualizerError.noRouteData
+        }
+        return fragment
+    }
+
+    /// Parses ISO 8601 timestamp string to Date
+    /// - Parameter timestampString: ISO 8601 formatted timestamp
+    /// - Returns: Parsed Date, or current date if parsing fails
+    private func parseTimestamp(_ timestampString: String) -> Date {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        if let date = formatter.date(from: timestampString) {
+            return date
+        }
+
+        // Try without fractional seconds
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: timestampString) {
+            return date
+        }
+
+        logWarning("Failed to parse timestamp: \(timestampString), using current date")
+        return Date()
+    }
+
     /// Parses a DataDog log entry and extracts waypoints
     /// - Parameter logEntry: The log entry to parse
     /// - Returns: Array of waypoints extracted from segment_coords
@@ -27,7 +119,7 @@ public final class LogParser {
             return try extractWaypoints(from: segmentCoords)
         }
 
-        logWarning("No segment_coords found in log entry \(logEntry.id)")
+        // No coordinate data - not an error, just no route data in this log
         throw TripVisualizerError.noRouteData
     }
 

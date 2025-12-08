@@ -154,6 +154,8 @@ public final class Logger {
     // MARK: - Output Methods
 
     private func writeToStderr(_ message: String) {
+        // Clear any active progress indicator line to prevent output collision
+        ProgressIndicator.shared.clearCurrentLine()
         FileHandle.standardError.write(Data((message + "\n").utf8))
     }
 

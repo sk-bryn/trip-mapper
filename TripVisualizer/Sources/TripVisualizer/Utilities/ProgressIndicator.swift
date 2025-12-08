@@ -12,6 +12,7 @@ public final class ProgressIndicator {
     public enum Stage: String, CaseIterable {
         case fetching = "Fetching logs from DataDog"
         case parsing = "Parsing route data"
+        case aggregating = "Aggregating route segments"
         case generating = "Generating map outputs"
         case downloading = "Downloading static map"
         case complete = "Complete"
@@ -20,6 +21,7 @@ public final class ProgressIndicator {
             switch self {
             case .fetching: return "🔍"
             case .parsing: return "📊"
+            case .aggregating: return "🔗"
             case .generating: return "🗺️"
             case .downloading: return "⬇️"
             case .complete: return "✅"
@@ -96,12 +98,19 @@ public final class ProgressIndicator {
         guard isEnabled, currentStage != nil else { return }
 
         if isSpinning {
-            // Update spinner message
+            // Clear the current line completely, then write the updated message
             clearLine()
             let frame = Self.spinnerFrames[spinnerIndex]
-            fputs("\r\(frame) \(message)", stderr)
+            fputs("\(frame) \(message)", stderr)
             fflush(stderr)
         }
+    }
+
+    /// Clears the current spinner line to allow clean output from other sources.
+    /// Call this before logging or printing other messages while spinner is active.
+    public func clearCurrentLine() {
+        guard isEnabled, isSpinning else { return }
+        clearLine()
     }
 
     /// Completes the current stage successfully
@@ -141,6 +150,10 @@ public final class ProgressIndicator {
             return
         }
 
+        // Clear spinner line before printing to ensure clean output
+        if isSpinning {
+            clearLine()
+        }
         printStatus(message, icon: useEmoji ? "⚠️" : "!", color: .yellow)
     }
 
@@ -156,6 +169,94 @@ public final class ProgressIndicator {
         printStatus("Generated \(outputCount) output(s) for trip \(tripId) in \(durationStr)",
                    icon: useEmoji ? "✅" : "✓",
                    color: .green)
+    }
+
+    // MARK: - Multi-Log Progress Methods
+
+    /// Updates progress for log parsing
+    /// - Parameter current: Current count of successfully parsed logs
+    public func updateLogProgress(current: Int) {
+        guard isEnabled else { return }
+        update("Parsed \(current) log(s) with route data")
+    }
+
+    /// Shows log completion with details (for verbose mode)
+    /// - Parameters:
+    ///   - logId: The log ID
+    ///   - waypointCount: Number of waypoints in this log
+    ///   - timestamp: Log timestamp
+    public func showLogDetails(logId: String, waypointCount: Int, timestamp: Date) {
+        guard isEnabled else { return }
+
+        // Clear spinner line before printing to ensure clean output
+        if isSpinning {
+            clearLine()
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        let timestampStr = formatter.string(from: timestamp)
+
+        printStatus("Log \(logId): \(waypointCount) waypoints @ \(timestampStr)",
+                   icon: "  ",
+                   color: .default)
+    }
+
+    /// Shows multi-log summary with aggregation details
+    /// - Parameters:
+    ///   - tripId: The trip ID
+    ///   - logCount: Number of logs processed
+    ///   - totalWaypoints: Total waypoints after aggregation
+    ///   - gapCount: Number of gaps detected
+    ///   - outputCount: Number of outputs generated
+    ///   - duration: Total processing time
+    public func showMultiLogSummary(
+        tripId: String,
+        logCount: Int,
+        totalWaypoints: Int,
+        gapCount: Int,
+        outputCount: Int,
+        duration: TimeInterval
+    ) {
+        guard isEnabled else { return }
+
+        let durationStr = String(format: "%.2fs", duration)
+
+        // Main summary line
+        printStatus("Generated \(outputCount) output(s) for trip \(tripId) in \(durationStr)",
+                   icon: useEmoji ? "✅" : "✓",
+                   color: .green)
+
+        // Multi-log details (only if more than one log)
+        if logCount > 1 {
+            printStatus("Processed \(logCount) logs with \(totalWaypoints) total waypoints",
+                       icon: "  ",
+                       color: .default)
+
+            if gapCount > 0 {
+                printStatus("\(gapCount) gap(s) detected and rendered as dashed lines",
+                           icon: useEmoji ? "⚠️" : "!",
+                           color: .yellow)
+            }
+        }
+    }
+
+    /// Shows truncation warning
+    /// - Parameter limit: The log limit that was reached
+    public func showTruncationWarning(limit: Int) {
+        guard isEnabled else {
+            logWarning("Trip truncated to \(limit) logs (limit reached)")
+            return
+        }
+
+        // Clear spinner line before printing to ensure clean output
+        if isSpinning {
+            clearLine()
+        }
+        printStatus("Trip truncated to \(limit) logs (limit reached)",
+                   icon: useEmoji ? "⚠️" : "!",
+                   color: .yellow)
     }
 
     // MARK: - Private Methods
