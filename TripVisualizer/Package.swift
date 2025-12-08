@@ -5,6 +5,8 @@ import PackageDescription
 
 let package = Package(
     name: "TripVisualizer",
+    // Note: platforms is only used on Apple platforms. Linux ignores this.
+    // macOS 12+ required for async/await URLSession APIs.
     platforms: [
         .macOS(.v12)
     ],
