@@ -140,7 +140,16 @@ public final class TripVisualizerService {
         logInfo("Found \(logs.count) log(s) with route data")
         progress.complete("Parsed \(logs.count) log(s)")
 
-        // Step 3: Aggregate logs into unified route
+        // Step 3: Generate per-log outputs if enabled
+        var perLogOutputCount = 0
+        if configuration.perLogOutput && logs.count > 0 {
+            progress.start(.generating, showSpinner: false)
+            progress.update("Generating per-log outputs...")
+            perLogOutputCount = try await generatePerLogOutputs(tripId: tripId, logs: logs)
+            progress.complete("Generated \(perLogOutputCount) per-log output(s)")
+        }
+
+        // Step 4: Aggregate logs into unified route
         progress.start(.aggregating)
         let unifiedRoute: UnifiedRoute
         do {
@@ -494,6 +503,91 @@ public final class TripVisualizerService {
         }
 
         return successCount
+    }
+
+    // MARK: - Per-Log Output Generation
+
+    /// Generates outputs for each individual log, named by timestamp
+    /// - Parameters:
+    ///   - tripId: Trip UUID
+    ///   - logs: Array of log fragments to generate outputs for
+    /// - Returns: Total number of outputs generated across all logs
+    @discardableResult
+    private func generatePerLogOutputs(tripId: UUID, logs: [LogFragment]) async throws -> Int {
+        // Create output directory: output/<tripId>/per-log/
+        let baseOutputDir = configuration.outputDirectory
+        let tripOutputDir = (baseOutputDir as NSString).appendingPathComponent(tripId.uuidString)
+        let perLogDir = (tripOutputDir as NSString).appendingPathComponent("per-log")
+        let fileManager = FileManager.default
+
+        do {
+            if !fileManager.fileExists(atPath: perLogDir) {
+                try fileManager.createDirectory(atPath: perLogDir, withIntermediateDirectories: true)
+            }
+        } catch {
+            throw TripVisualizerError.cannotWriteOutput(
+                path: perLogDir,
+                reason: "Cannot create per-log output directory: \(error.localizedDescription)"
+            )
+        }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd-HHmmss"
+        dateFormatter.timeZone = TimeZone(identifier: "UTC")
+
+        var totalOutputs = 0
+
+        for (index, log) in logs.enumerated() {
+            let timestamp = dateFormatter.string(from: log.timestamp)
+            let baseName = "\(timestamp)_log\(index + 1)"
+
+            progress.update("Generating outputs for log \(index + 1) of \(logs.count)...")
+
+            for format in configuration.outputFormats {
+                do {
+                    switch format {
+                    case .html:
+                        let path = (perLogDir as NSString).appendingPathComponent("\(baseName).html")
+                        try mapGenerator.writeHTML(tripId: tripId, waypoints: log.waypoints, to: path)
+                        logDebug("Per-log HTML written: \(path)")
+                        totalOutputs += 1
+
+                    case .image:
+                        let path = (perLogDir as NSString).appendingPathComponent("\(baseName).png")
+                        guard let url = mapGenerator.generateStaticMapsURL(waypoints: log.waypoints) else {
+                            continue
+                        }
+                        let data = try await downloadStaticMap(from: url)
+                        try data.write(to: URL(fileURLWithPath: path))
+                        logDebug("Per-log PNG written: \(path)")
+                        totalOutputs += 1
+
+                    case .url:
+                        // URLs are transient, write to a text file instead
+                        var urlContent = "Log \(index + 1) - \(timestamp)\n"
+                        urlContent += "Log ID: \(log.id)\n"
+                        urlContent += "Waypoints: \(log.waypoints.count)\n\n"
+
+                        if let staticURL = mapGenerator.generateStaticMapsURL(waypoints: log.waypoints) {
+                            urlContent += "Static Maps URL:\n\(staticURL.absoluteString)\n\n"
+                        }
+                        if let webURL = mapGenerator.generateGoogleMapsWebURL(waypoints: log.waypoints) {
+                            urlContent += "Google Maps URL:\n\(webURL.absoluteString)\n"
+                        }
+
+                        let path = (perLogDir as NSString).appendingPathComponent("\(baseName)_urls.txt")
+                        try urlContent.write(toFile: path, atomically: true, encoding: .utf8)
+                        logDebug("Per-log URLs written: \(path)")
+                        totalOutputs += 1
+                    }
+                } catch {
+                    logWarning("Failed to generate \(format) for log \(index + 1): \(error.localizedDescription)")
+                }
+            }
+        }
+
+        logInfo("Generated \(totalOutputs) per-log outputs in \(perLogDir)")
+        return totalOutputs
     }
 
     /// Downloads static map image with retry support

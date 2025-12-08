@@ -50,6 +50,11 @@ public struct Configuration: Codable, Equatable {
     /// Time threshold for gap detection in seconds (default: 300 = 5 minutes)
     public var gapThresholdSeconds: TimeInterval
 
+    /// Generate outputs for each individual log in addition to aggregate (default: false)
+    /// When true, creates HTML/PNG/URL for each log named with the log's timestamp,
+    /// then produces the aggregate results as usual.
+    public var perLogOutput: Bool
+
     // MARK: - Default Configuration
 
     /// Default configuration with sensible defaults
@@ -67,7 +72,8 @@ public struct Configuration: Codable, Equatable {
         retryAttempts: 3,
         timeoutSeconds: 30,
         maxLogs: 50,
-        gapThresholdSeconds: 300
+        gapThresholdSeconds: 300,
+        perLogOutput: false
     )
 
     // MARK: - Initialization
@@ -86,7 +92,8 @@ public struct Configuration: Codable, Equatable {
         retryAttempts: Int,
         timeoutSeconds: Int,
         maxLogs: Int = 50,
-        gapThresholdSeconds: TimeInterval = 300
+        gapThresholdSeconds: TimeInterval = 300,
+        perLogOutput: Bool = false
     ) {
         self.outputDirectory = outputDirectory
         self.outputFormats = outputFormats
@@ -102,6 +109,7 @@ public struct Configuration: Codable, Equatable {
         self.timeoutSeconds = timeoutSeconds
         self.maxLogs = maxLogs
         self.gapThresholdSeconds = gapThresholdSeconds
+        self.perLogOutput = perLogOutput
     }
 
     // MARK: - Codable with Defaults
@@ -121,6 +129,7 @@ public struct Configuration: Codable, Equatable {
         case timeoutSeconds
         case maxLogs
         case gapThresholdSeconds
+        case perLogOutput
     }
 
     public init(from decoder: Decoder) throws {
@@ -140,6 +149,7 @@ public struct Configuration: Codable, Equatable {
         timeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? Self.defaultConfig.timeoutSeconds
         maxLogs = try container.decodeIfPresent(Int.self, forKey: .maxLogs) ?? Self.defaultConfig.maxLogs
         gapThresholdSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .gapThresholdSeconds) ?? Self.defaultConfig.gapThresholdSeconds
+        perLogOutput = try container.decodeIfPresent(Bool.self, forKey: .perLogOutput) ?? Self.defaultConfig.perLogOutput
     }
 
     // MARK: - DataDog Configuration

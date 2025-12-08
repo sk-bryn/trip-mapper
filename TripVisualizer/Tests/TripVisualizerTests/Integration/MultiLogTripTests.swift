@@ -297,6 +297,26 @@ final class MultiLogTripTests: XCTestCase {
         XCTAssertEqual(config.maxLogs, 50)
     }
 
+    func testConfigurationPerLogOutputDefault() {
+        let config = Configuration.defaultConfig
+        XCTAssertFalse(config.perLogOutput)
+    }
+
+    func testConfigurationPerLogOutputDecoding() throws {
+        // Config JSON with perLogOutput enabled
+        let json = """
+        {
+            "outputDirectory": "output",
+            "perLogOutput": true
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        let config = try decoder.decode(Configuration.self, from: json)
+
+        XCTAssertTrue(config.perLogOutput)
+    }
+
     // MARK: - Performance
 
     func testManyFragmentsAggregation() throws {
