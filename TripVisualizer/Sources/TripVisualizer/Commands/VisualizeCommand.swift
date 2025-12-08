@@ -5,6 +5,7 @@ import ArgumentParser
 ///
 /// Accepts a trip UUID, fetches logs from DataDog, extracts waypoints,
 /// and generates map visualizations in the specified formats.
+@available(macOS 10.15, macCatalyst 13, iOS 13, tvOS 13, watchOS 6, *)
 struct VisualizeCommand: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(

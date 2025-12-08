@@ -179,15 +179,15 @@ Log levels:
 ```
 TripVisualizer/
   Sources/TripVisualizer/
-    Commands/           # CLI command definitions
-    Models/             # Data models (Trip, Waypoint, Configuration)
-    Services/           # Business logic (DataDogClient, MapGenerator, etc.)
-    Utilities/          # Helpers (Logger, ProgressIndicator, etc.)
-    main.swift          # Entry point
+    Commands/                # CLI command definitions
+    Models/                  # Data models (Trip, Waypoint, Configuration)
+    Services/                # Business logic (DataDogClient, MapGenerator, etc.)
+    Utilities/               # Helpers (Logger, ProgressIndicator, etc.)
+    TripVisualizerCLI.swift  # Entry point (@main)
   Tests/TripVisualizerTests/
-    Models/             # Model tests
-    Services/           # Service tests
-    Integration/        # End-to-end tests
+    Models/                  # Model tests
+    Services/                # Service tests
+    Integration/             # End-to-end tests
 ```
 
 ### Key Components
