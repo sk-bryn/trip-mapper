@@ -98,12 +98,19 @@ public final class ProgressIndicator {
         guard isEnabled, currentStage != nil else { return }
 
         if isSpinning {
-            // Update spinner message
+            // Clear the current line completely, then write the updated message
             clearLine()
             let frame = Self.spinnerFrames[spinnerIndex]
-            fputs("\r\(frame) \(message)", stderr)
+            fputs("\(frame) \(message)", stderr)
             fflush(stderr)
         }
+    }
+
+    /// Clears the current spinner line to allow clean output from other sources.
+    /// Call this before logging or printing other messages while spinner is active.
+    public func clearCurrentLine() {
+        guard isEnabled, isSpinning else { return }
+        clearLine()
     }
 
     /// Completes the current stage successfully
@@ -143,6 +150,10 @@ public final class ProgressIndicator {
             return
         }
 
+        // Clear spinner line before printing to ensure clean output
+        if isSpinning {
+            clearLine()
+        }
         printStatus(message, icon: useEmoji ? "⚠️" : "!", color: .yellow)
     }
 
@@ -178,6 +189,11 @@ public final class ProgressIndicator {
     ///   - timestamp: Fragment timestamp
     public func showFragmentDetails(fragmentId: String, waypointCount: Int, timestamp: Date) {
         guard isEnabled else { return }
+
+        // Clear spinner line before printing to ensure clean output
+        if isSpinning {
+            clearLine()
+        }
 
         let formatter = DateFormatter()
         formatter.dateStyle = .short
@@ -236,6 +252,10 @@ public final class ProgressIndicator {
             return
         }
 
+        // Clear spinner line before printing to ensure clean output
+        if isSpinning {
+            clearLine()
+        }
         printStatus("Trip truncated to \(limit) fragments (limit reached)",
                    icon: useEmoji ? "⚠️" : "!",
                    color: .yellow)
@@ -251,6 +271,10 @@ public final class ProgressIndicator {
             return
         }
 
+        // Clear spinner line before printing to ensure clean output
+        if isSpinning {
+            clearLine()
+        }
         printStatus("\(failedCount) fragment(s) failed to process, continuing with \(successCount)",
                    icon: useEmoji ? "⚠️" : "!",
                    color: .yellow)
