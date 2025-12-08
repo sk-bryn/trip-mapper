@@ -25,10 +25,7 @@ let package = Package(
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
-            path: "Sources/TripVisualizer",
-            resources: [
-                .copy("Resources/map-template.html")
-            ]
+            path: "Sources/TripVisualizer"
         ),
         .testTarget(
             name: "TripVisualizerTests",
