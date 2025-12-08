@@ -228,26 +228,19 @@ final class MultiLogTripTests: XCTestCase {
 
         // When
         let metadata = TripMetadata.from(
-            fragments: fragments,
-            totalFound: 3,
-            failedCount: 1,
+            logs: fragments,
             truncated: false
         )
 
         // Then
-        XCTAssertEqual(metadata.totalFragments, 3)
-        XCTAssertEqual(metadata.successfulFragments, 2)
-        XCTAssertEqual(metadata.failedFragments, 1)
+        XCTAssertEqual(metadata.totalLogs, 2)
         XCTAssertFalse(metadata.truncated)
-        XCTAssertTrue(metadata.hasFailures)
     }
 
     func testTripMetadataTruncation() {
         // Given
         let metadata = TripMetadata.from(
-            fragments: [],
-            totalFound: 50,
-            failedCount: 0,
+            logs: [],
             truncated: true
         )
 
@@ -299,9 +292,9 @@ final class MultiLogTripTests: XCTestCase {
         XCTAssertEqual(config.gapThresholdSeconds, 300) // 5 minutes
     }
 
-    func testConfigurationMaxFragmentsDefault() {
+    func testConfigurationMaxLogsDefault() {
         let config = Configuration.defaultConfig
-        XCTAssertEqual(config.maxFragments, 50)
+        XCTAssertEqual(config.maxLogs, 50)
     }
 
     // MARK: - Performance

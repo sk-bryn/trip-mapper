@@ -44,8 +44,8 @@ public struct Configuration: Codable, Equatable {
     /// Network timeout in seconds (default: 30)
     public var timeoutSeconds: Int
 
-    /// Maximum log fragments to process per trip (default: 50)
-    public var maxFragments: Int
+    /// Maximum logs to process per trip (default: 50)
+    public var maxLogs: Int
 
     /// Time threshold for gap detection in seconds (default: 300 = 5 minutes)
     public var gapThresholdSeconds: TimeInterval
@@ -66,7 +66,7 @@ public struct Configuration: Codable, Equatable {
         logLevel: .info,
         retryAttempts: 3,
         timeoutSeconds: 30,
-        maxFragments: 50,
+        maxLogs: 50,
         gapThresholdSeconds: 300
     )
 
@@ -85,7 +85,7 @@ public struct Configuration: Codable, Equatable {
         logLevel: LogLevel,
         retryAttempts: Int,
         timeoutSeconds: Int,
-        maxFragments: Int = 50,
+        maxLogs: Int = 50,
         gapThresholdSeconds: TimeInterval = 300
     ) {
         self.outputDirectory = outputDirectory
@@ -100,7 +100,7 @@ public struct Configuration: Codable, Equatable {
         self.logLevel = logLevel
         self.retryAttempts = retryAttempts
         self.timeoutSeconds = timeoutSeconds
-        self.maxFragments = maxFragments
+        self.maxLogs = maxLogs
         self.gapThresholdSeconds = gapThresholdSeconds
     }
 
@@ -119,7 +119,7 @@ public struct Configuration: Codable, Equatable {
         case logLevel
         case retryAttempts
         case timeoutSeconds
-        case maxFragments
+        case maxLogs
         case gapThresholdSeconds
     }
 
@@ -138,7 +138,7 @@ public struct Configuration: Codable, Equatable {
         logLevel = try container.decodeIfPresent(LogLevel.self, forKey: .logLevel) ?? Self.defaultConfig.logLevel
         retryAttempts = try container.decodeIfPresent(Int.self, forKey: .retryAttempts) ?? Self.defaultConfig.retryAttempts
         timeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? Self.defaultConfig.timeoutSeconds
-        maxFragments = try container.decodeIfPresent(Int.self, forKey: .maxFragments) ?? Self.defaultConfig.maxFragments
+        maxLogs = try container.decodeIfPresent(Int.self, forKey: .maxLogs) ?? Self.defaultConfig.maxLogs
         gapThresholdSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .gapThresholdSeconds) ?? Self.defaultConfig.gapThresholdSeconds
     }
 

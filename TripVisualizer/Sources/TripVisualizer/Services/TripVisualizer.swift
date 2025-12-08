@@ -81,101 +81,89 @@ public final class TripVisualizerService {
         logInfo("Fetching logs for trip \(tripId.uuidString)")
 
         let logEntries: [DataDogLogEntry]
-        let truncated: Bool
         do {
-            let allLogs = try await dataDogClient.fetchAllLogs(tripId: tripId, limit: configuration.maxFragments)
+            let allLogs = try await dataDogClient.fetchAllLogs(tripId: tripId, limit: configuration.maxLogs)
 
             if allLogs.isEmpty {
                 throw TripVisualizerError.tripNotFound(tripId)
             }
 
-            // Check for truncation (more logs exist than limit)
-            truncated = allLogs.count >= configuration.maxFragments
-            if truncated {
-                progress.showTruncationWarning(limit: configuration.maxFragments)
-            }
-
             logEntries = allLogs
-            logInfo("Found \(logEntries.count) log fragment(s)")
-            progress.complete("Fetched \(logEntries.count) log fragment(s)")
+            progress.complete("Fetched logs from DataDog")
         } catch {
             progress.fail("Failed to fetch logs: \(error.localizedDescription)")
             throw error
         }
 
         // Step 2: Parse each log entry into a LogFragment
+        // Only logs with valid coordinate data are counted
         progress.start(.parsing)
-        var fragments: [LogFragment] = []
-        var failedCount = 0
-        let totalLogs = logEntries.count
+        var logs: [LogFragment] = []
 
-        for (index, logEntry) in logEntries.enumerated() {
-            // Update progress with current fragment number
-            progress.updateFragmentProgress(current: index + 1, total: totalLogs)
+        for logEntry in logEntries {
+            if let log = logParser.parseToLogFragment(
+                logEntry,
+                tripId: tripId,
+                logLinkGenerator: { [dataDogClient] logId in
+                    dataDogClient.generateLogLink(logId: logId)
+                }
+            ) {
+                logs.append(log)
 
-            do {
-                let fragment = try logParser.parseToFragment(
-                    logEntry,
-                    tripId: tripId,
-                    logLinkGenerator: { [dataDogClient] logId in
-                        dataDogClient.generateLogLink(logId: logId)
-                    }
-                )
-                fragments.append(fragment)
+                // Update progress with current count
+                progress.updateLogProgress(current: logs.count)
 
                 // Show verbose details if enabled
                 if configuration.isVerbose {
-                    progress.showFragmentDetails(
-                        fragmentId: fragment.id,
-                        waypointCount: fragment.waypoints.count,
-                        timestamp: fragment.timestamp
+                    progress.showLogDetails(
+                        logId: log.id,
+                        waypointCount: log.waypoints.count,
+                        timestamp: log.timestamp
                     )
                 }
-            } catch {
-                failedCount += 1
-                logWarning("Failed to parse fragment \(logEntry.id): \(error.localizedDescription)")
             }
+            // Logs without coordinate data are silently ignored
         }
 
-        // Check we have at least one valid fragment
-        guard !fragments.isEmpty else {
-            progress.fail("Failed to parse any route data")
+        // Check we have at least one valid log with coordinates
+        guard !logs.isEmpty else {
+            progress.fail("No logs with route data found")
             throw TripVisualizerError.noRouteData
         }
 
-        // Log partial failure if some fragments failed
-        if failedCount > 0 {
-            progress.showPartialFailureWarning(failedCount: failedCount, successCount: fragments.count)
+        // Check for truncation (hit the limit)
+        let truncated = logs.count >= configuration.maxLogs
+        if truncated {
+            progress.showTruncationWarning(limit: configuration.maxLogs)
         }
 
-        progress.complete("Parsed \(fragments.count) fragment(s)")
+        logInfo("Found \(logs.count) log(s) with route data")
+        progress.complete("Parsed \(logs.count) log(s)")
 
-        // Step 3: Aggregate fragments into unified route
+        // Step 3: Aggregate logs into unified route
         progress.start(.aggregating)
         let unifiedRoute: UnifiedRoute
         do {
             unifiedRoute = try fragmentAggregator.aggregate(
-                fragments: fragments,
+                fragments: logs,
                 gapThreshold: configuration.gapThresholdSeconds
             )
-            logInfo("Aggregated \(unifiedRoute.totalWaypointCount) waypoints from \(unifiedRoute.fragmentCount) fragment(s)")
+            logInfo("Aggregated \(unifiedRoute.totalWaypointCount) waypoints from \(unifiedRoute.fragmentCount) log(s)")
 
             if unifiedRoute.hasGaps {
                 logInfo("Detected \(unifiedRoute.gapCount) gap(s) in route")
-                progress.complete("Aggregated \(fragments.count) fragments (\(unifiedRoute.gapCount) gap(s) detected)")
+                progress.complete("Aggregated \(logs.count) log(s) (\(unifiedRoute.gapCount) gap(s) detected)")
             } else {
-                progress.complete("Aggregated \(fragments.count) fragments into continuous route")
+                progress.complete("Aggregated \(logs.count) log(s) into continuous route")
             }
         } catch {
-            progress.fail("Failed to aggregate fragments")
+            progress.fail("Failed to aggregate logs")
             throw error
         }
 
         // Step 4: Create metadata for reporting
         let metadata = TripMetadata.from(
-            fragments: fragments,
-            totalFound: logEntries.count,
-            failedCount: failedCount,
+            logs: logs,
             truncated: truncated
         )
 
@@ -189,7 +177,7 @@ public final class TripVisualizerService {
 
         // Show summary
         let duration = Date().timeIntervalSince(startTime)
-        showMultiFragmentSummary(tripId: tripId, route: unifiedRoute, metadata: metadata, outputCount: outputCount, duration: duration)
+        showMultiLogSummary(tripId: tripId, route: unifiedRoute, metadata: metadata, outputCount: outputCount, duration: duration)
     }
 
     /// Legacy visualize method for backward compatibility with single-log trips
@@ -541,18 +529,18 @@ public final class TripVisualizerService {
         }
     }
 
-    /// Shows summary for multi-fragment trip processing
-    private func showMultiFragmentSummary(
+    /// Shows summary for multi-log trip processing
+    private func showMultiLogSummary(
         tripId: UUID,
         route: UnifiedRoute,
         metadata: TripMetadata,
         outputCount: Int,
         duration: TimeInterval
     ) {
-        // Use the enhanced multi-fragment summary
-        progress.showMultiFragmentSummary(
+        // Use the enhanced multi-log summary
+        progress.showMultiLogSummary(
             tripId: tripId.uuidString,
-            fragmentCount: route.fragmentCount,
+            logCount: route.fragmentCount,
             totalWaypoints: route.totalWaypointCount,
             gapCount: route.gapCount,
             outputCount: outputCount,
@@ -561,11 +549,7 @@ public final class TripVisualizerService {
 
         // Additional warnings
         if metadata.truncated {
-            logWarning("Trip truncated to \(metadata.totalFragments) fragments")
-        }
-
-        if metadata.hasFailures {
-            logWarning("\(metadata.failedFragments) fragment(s) failed to process")
+            logWarning("Trip truncated to \(metadata.totalLogs) logs")
         }
     }
 }

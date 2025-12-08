@@ -1,45 +1,38 @@
 import Foundation
 
-/// Metadata about trip fragment processing for logging and display.
+/// Metadata about trip log processing for logging and display.
 ///
-/// TripMetadata provides summary information about how fragments were processed,
-/// including success/failure counts and timing information. This is useful for
+/// TripMetadata provides summary information about how logs were processed,
+/// including counts and timing information. This is useful for
 /// logging, debugging, and providing feedback to users.
+///
+/// Note: Only logs with valid coordinate data are counted. Logs without
+/// coordinates are silently ignored and not included in any counts.
 public struct TripMetadata: Codable, Equatable, Sendable {
 
     // MARK: - Properties
 
-    /// Total fragments found in DataDog
-    public let totalFragments: Int
+    /// Total logs with valid coordinate data
+    public let totalLogs: Int
 
-    /// Successfully processed fragments
-    public let successfulFragments: Int
-
-    /// Failed fragments (download or parse errors)
-    public let failedFragments: Int
-
-    /// True if more than 50 fragments existed (truncated)
+    /// True if the log limit was reached (truncated)
     public let truncated: Bool
 
-    /// Timestamp of first fragment
+    /// Timestamp of first log
     public let firstTimestamp: Date
 
-    /// Timestamp of last fragment
+    /// Timestamp of last log
     public let lastTimestamp: Date
 
     // MARK: - Initialization
 
     public init(
-        totalFragments: Int,
-        successfulFragments: Int,
-        failedFragments: Int,
+        totalLogs: Int,
         truncated: Bool,
         firstTimestamp: Date,
         lastTimestamp: Date
     ) {
-        self.totalFragments = totalFragments
-        self.successfulFragments = successfulFragments
-        self.failedFragments = failedFragments
+        self.totalLogs = totalLogs
         self.truncated = truncated
         self.firstTimestamp = firstTimestamp
         self.lastTimestamp = lastTimestamp
@@ -47,25 +40,14 @@ public struct TripMetadata: Codable, Equatable, Sendable {
 
     // MARK: - Computed Properties
 
-    /// Time duration from first to last fragment
+    /// Time duration from first to last log
     public var totalDuration: TimeInterval {
         lastTimestamp.timeIntervalSince(firstTimestamp)
     }
 
-    /// Percentage of successful fragments (0.0 to 1.0)
-    public var successRate: Double {
-        guard totalFragments > 0 else { return 0.0 }
-        return Double(successfulFragments) / Double(totalFragments)
-    }
-
-    /// Returns true if any fragments failed processing
-    public var hasFailures: Bool {
-        failedFragments > 0
-    }
-
-    /// Returns true if all fragments were processed successfully
+    /// Returns true if all logs were processed successfully (not truncated)
     public var isComplete: Bool {
-        failedFragments == 0 && !truncated
+        !truncated
     }
 
     /// Human-readable duration string
@@ -88,11 +70,7 @@ public struct TripMetadata: Codable, Equatable, Sendable {
 extension TripMetadata: CustomStringConvertible {
     public var description: String {
         var parts: [String] = []
-        parts.append("\(successfulFragments)/\(totalFragments) fragments")
-
-        if hasFailures {
-            parts.append("\(failedFragments) failed")
-        }
+        parts.append("\(totalLogs) logs")
 
         if truncated {
             parts.append("truncated")
@@ -107,34 +85,28 @@ extension TripMetadata: CustomStringConvertible {
 // MARK: - Factory Methods
 
 extension TripMetadata {
-    /// Creates metadata for a single fragment (no aggregation needed)
+    /// Creates metadata for a single log
     public static func single(timestamp: Date) -> TripMetadata {
         TripMetadata(
-            totalFragments: 1,
-            successfulFragments: 1,
-            failedFragments: 0,
+            totalLogs: 1,
             truncated: false,
             firstTimestamp: timestamp,
             lastTimestamp: timestamp
         )
     }
 
-    /// Creates metadata from an array of successfully processed fragments
+    /// Creates metadata from an array of successfully parsed logs
     public static func from(
-        fragments: [LogFragment],
-        totalFound: Int,
-        failedCount: Int,
+        logs: [LogFragment],
         truncated: Bool
     ) -> TripMetadata {
-        let sortedFragments = fragments.sorted()
+        let sortedLogs = logs.sorted()
 
         return TripMetadata(
-            totalFragments: totalFound,
-            successfulFragments: fragments.count,
-            failedFragments: failedCount,
+            totalLogs: logs.count,
             truncated: truncated,
-            firstTimestamp: sortedFragments.first?.timestamp ?? Date(),
-            lastTimestamp: sortedFragments.last?.timestamp ?? Date()
+            firstTimestamp: sortedLogs.first?.timestamp ?? Date(),
+            lastTimestamp: sortedLogs.last?.timestamp ?? Date()
         )
     }
 }

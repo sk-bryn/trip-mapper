@@ -58,7 +58,7 @@ public final class DataDogClient {
     /// - Returns: Array of DataDogLogEntry sorted by timestamp ascending
     /// - Throws: `TripVisualizerError` on failure
     public func fetchAllLogs(tripId: UUID, limit: Int? = nil) async throws -> [DataDogLogEntry] {
-        let effectiveLimit = min(limit ?? configuration.maxFragments, 100)
+        let effectiveLimit = min(limit ?? configuration.maxLogs, 100)
 
         // Validate credentials
         guard !apiKey.isEmpty else {

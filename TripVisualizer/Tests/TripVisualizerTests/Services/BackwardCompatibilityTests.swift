@@ -155,7 +155,7 @@ final class BackwardCompatibilityTests: XCTestCase {
         let config = Configuration.defaultConfig
 
         // Ensure new config options have sensible defaults
-        XCTAssertEqual(config.maxFragments, 50)
+        XCTAssertEqual(config.maxLogs, 50)
         XCTAssertEqual(config.gapThresholdSeconds, 300)
     }
 
@@ -173,7 +173,7 @@ final class BackwardCompatibilityTests: XCTestCase {
         let config = try decoder.decode(Configuration.self, from: json)
 
         // New options should use defaults
-        XCTAssertEqual(config.maxFragments, 50)
+        XCTAssertEqual(config.maxLogs, 50)
         XCTAssertEqual(config.gapThresholdSeconds, 300)
     }
 
