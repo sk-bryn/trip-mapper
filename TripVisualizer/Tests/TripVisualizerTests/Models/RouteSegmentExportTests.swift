@@ -18,7 +18,7 @@ final class RouteSegmentExportTests: XCTestCase {
         tripId: UUID = UUID(),
         timestamp: Date = Date(),
         waypoints: [Waypoint]? = nil,
-        logLink: String = "https://app.datadoghq.com/logs?query=@id:log123"
+        logLink: String = "https://app.datadoghq.com/logs?event=log123"
     ) -> LogFragment {
         let defaultWaypoints = waypoints ?? [
             makeWaypoint(lat: 37.7749, lon: -122.4194),
@@ -42,7 +42,7 @@ final class RouteSegmentExportTests: XCTestCase {
         let segment = RouteSegmentExport(
             segmentIndex: 0,
             datadogLogId: "log123",
-            datadogUrl: "https://app.datadoghq.com/logs?query=@id:log123",
+            datadogUrl: "https://app.datadoghq.com/logs?event=log123",
             timestamp: timestamp,
             waypointCount: 50,
             orders: orders
@@ -50,7 +50,7 @@ final class RouteSegmentExportTests: XCTestCase {
 
         XCTAssertEqual(segment.segmentIndex, 0)
         XCTAssertEqual(segment.datadogLogId, "log123")
-        XCTAssertEqual(segment.datadogUrl, "https://app.datadoghq.com/logs?query=@id:log123")
+        XCTAssertEqual(segment.datadogUrl, "https://app.datadoghq.com/logs?event=log123")
         XCTAssertEqual(segment.timestamp, timestamp)
         XCTAssertEqual(segment.waypointCount, 50)
         XCTAssertEqual(segment.orders.count, 1)
@@ -155,7 +155,7 @@ final class RouteSegmentExportTests: XCTestCase {
     // MARK: - DataDog URL Tests
 
     func testDatadogUrlPreserved() {
-        let expectedUrl = "https://app.datadoghq.com/logs?query=@id:abc123&time=12345"
+        let expectedUrl = "https://app.datadoghq.com/logs?event=abc123&time=12345"
         let fragment = makeLogFragment(logLink: expectedUrl)
         let segment = RouteSegmentExport.from(index: 0, fragment: fragment)
 
@@ -164,7 +164,7 @@ final class RouteSegmentExportTests: XCTestCase {
 
     func testDatadogUrlFormatInExportOutput() throws {
         let logId = "abc123xyz"
-        let expectedUrl = "https://app.datadoghq.com/logs?query=@id:\(logId)"
+        let expectedUrl = "https://app.datadoghq.com/logs?event=\(logId)"
         let fragment = makeLogFragment(id: logId, logLink: expectedUrl)
         let segment = RouteSegmentExport.from(index: 0, fragment: fragment)
 

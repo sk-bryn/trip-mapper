@@ -104,7 +104,7 @@ final class MultiLogTripTests: XCTestCase {
 
         // When - Parse to fragment
         let fragment = try parser.parseToFragment(logEntry, tripId: tripId) { logId in
-            "https://app.datadoghq.com/logs?query=@id:\(logId)"
+            "https://app.datadoghq.com/logs?event=\(logId)"
         }
 
         // Then

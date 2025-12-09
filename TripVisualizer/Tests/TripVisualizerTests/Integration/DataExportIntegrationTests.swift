@@ -47,7 +47,7 @@ final class DataExportIntegrationTests: XCTestCase {
             tripId: tripId,
             timestamp: timestamp,
             waypoints: waypoints,
-            logLink: logLink ?? "https://app.datadoghq.com/logs?query=@id:\(id)"
+            logLink: logLink ?? "https://app.datadoghq.com/logs?event=\(id)"
         )
     }
 
@@ -329,7 +329,7 @@ final class DataExportIntegrationTests: XCTestCase {
         // Given - Fragment with realistic DataDog log URL
         let tripId = UUID()
         let logId = "AYR123ABCdefGHI456"
-        let expectedUrl = "https://app.datadoghq.com/logs?query=@id:\(logId)&time=1700000000"
+        let expectedUrl = "https://app.datadoghq.com/logs?event=\(logId)&time=1700000000"
 
         let log = makeLogFragment(
             id: logId,

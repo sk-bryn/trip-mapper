@@ -55,6 +55,12 @@ public struct Configuration: Codable, Equatable {
     /// then produces the aggregate results as usual.
     public var perLogOutput: Bool
 
+    /// Marker style for delivery destination markers (default: purple home icon)
+    public var deliveryDestinationMarkerStyle: MarkerStyle
+
+    /// Marker style for restaurant origin markers (default: blue restaurant icon)
+    public var restaurantOriginMarkerStyle: MarkerStyle
+
     // MARK: - Default Configuration
 
     /// Default configuration with sensible defaults
@@ -73,7 +79,9 @@ public struct Configuration: Codable, Equatable {
         timeoutSeconds: 30,
         maxLogs: 50,
         gapThresholdSeconds: 300,
-        perLogOutput: true
+        perLogOutput: true,
+        deliveryDestinationMarkerStyle: .defaultDeliveryDestination,
+        restaurantOriginMarkerStyle: .defaultRestaurantOrigin
     )
 
     // MARK: - Initialization
@@ -93,7 +101,9 @@ public struct Configuration: Codable, Equatable {
         timeoutSeconds: Int,
         maxLogs: Int = 50,
         gapThresholdSeconds: TimeInterval = 300,
-        perLogOutput: Bool = true
+        perLogOutput: Bool = true,
+        deliveryDestinationMarkerStyle: MarkerStyle = .defaultDeliveryDestination,
+        restaurantOriginMarkerStyle: MarkerStyle = .defaultRestaurantOrigin
     ) {
         self.outputDirectory = outputDirectory
         self.outputFormats = outputFormats
@@ -110,6 +120,8 @@ public struct Configuration: Codable, Equatable {
         self.maxLogs = maxLogs
         self.gapThresholdSeconds = gapThresholdSeconds
         self.perLogOutput = perLogOutput
+        self.deliveryDestinationMarkerStyle = deliveryDestinationMarkerStyle
+        self.restaurantOriginMarkerStyle = restaurantOriginMarkerStyle
     }
 
     // MARK: - Codable with Defaults
@@ -130,6 +142,8 @@ public struct Configuration: Codable, Equatable {
         case maxLogs
         case gapThresholdSeconds
         case perLogOutput
+        case deliveryDestinationMarkerStyle
+        case restaurantOriginMarkerStyle
     }
 
     public init(from decoder: Decoder) throws {
@@ -150,6 +164,8 @@ public struct Configuration: Codable, Equatable {
         maxLogs = try container.decodeIfPresent(Int.self, forKey: .maxLogs) ?? Self.defaultConfig.maxLogs
         gapThresholdSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .gapThresholdSeconds) ?? Self.defaultConfig.gapThresholdSeconds
         perLogOutput = try container.decodeIfPresent(Bool.self, forKey: .perLogOutput) ?? Self.defaultConfig.perLogOutput
+        deliveryDestinationMarkerStyle = try container.decodeIfPresent(MarkerStyle.self, forKey: .deliveryDestinationMarkerStyle) ?? Self.defaultConfig.deliveryDestinationMarkerStyle
+        restaurantOriginMarkerStyle = try container.decodeIfPresent(MarkerStyle.self, forKey: .restaurantOriginMarkerStyle) ?? Self.defaultConfig.restaurantOriginMarkerStyle
     }
 
     // MARK: - DataDog Configuration
@@ -189,5 +205,40 @@ public struct Configuration: Codable, Equatable {
     /// Whether verbose output is enabled (debug log level)
     public var isVerbose: Bool {
         logLevel == .debug
+    }
+
+    // MARK: - Enrichment Query Configuration
+
+    /// Service name for delivery order logs (different from driver service)
+    public static let deliveryOrderService = "delivery-order-service"
+
+    /// Builds the DataDog query string for GetDeliveryOrder logs.
+    ///
+    /// Query format: `env:<datadogEnv> @orderId:<uuid> service:delivery-order-service "handled request for GetDeliveryOrder"`
+    ///
+    /// - Parameter orderId: The order UUID to filter by
+    /// - Returns: DataDog query string for order enrichment logs
+    public func buildDeliveryOrderQuery(orderId: UUID) -> String {
+        "env:\(datadogEnv) @orderId:\(orderId.uuidString.lowercased()) service:\(Self.deliveryOrderService) \"handled request for GetDeliveryOrder\""
+    }
+
+    /// Builds the DataDog query string for GetLocationsDetails logs.
+    ///
+    /// Query format: `env:<datadogEnv> service:<datadogService> "handled request for GetLocationsDetails"`
+    ///
+    /// Note: This query does not include tripId because GetLocationsDetails
+    /// uses location_number as input, not tripId.
+    ///
+    /// - Returns: DataDog query string for restaurant location logs
+    public func buildLocationsDetailsQuery() -> String {
+        "env:\(datadogEnv) service:\(datadogService) \"handled request for GetLocationsDetails\""
+    }
+
+    /// Builds the DataDog query string for GetLocationsDetails logs filtered by location number.
+    ///
+    /// - Parameter locationNumber: The 5-digit location identifier
+    /// - Returns: DataDog query string for specific restaurant location
+    public func buildLocationsDetailsQuery(locationNumber: String) -> String {
+        "env:\(datadogEnv) service:\(datadogService) \"handled request for GetLocationsDetails\" @response.Msg.locations.location_number:\(locationNumber)"
     }
 }

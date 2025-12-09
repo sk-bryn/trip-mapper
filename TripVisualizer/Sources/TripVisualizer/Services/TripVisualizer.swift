@@ -17,6 +17,7 @@ public final class TripVisualizerService {
     private let mapGenerator: MapGenerator
     private let fragmentAggregator: FragmentAggregator
     private let dataExportGenerator: DataExportGenerator
+    private let enrichmentService: EnrichmentService
     private let progress: ProgressIndicator
 
     // MARK: - Initialization
@@ -45,6 +46,10 @@ public final class TripVisualizerService {
         )
         self.fragmentAggregator = FragmentAggregator()
         self.dataExportGenerator = DataExportGenerator()
+        self.enrichmentService = EnrichmentService(
+            dataDogClient: self.dataDogClient,
+            configuration: configuration
+        )
         self.progress = ProgressIndicator()
     }
 
@@ -56,6 +61,7 @@ public final class TripVisualizerService {
         mapGenerator: MapGenerator,
         fragmentAggregator: FragmentAggregator = FragmentAggregator(),
         dataExportGenerator: DataExportGenerator = DataExportGenerator(),
+        enrichmentService: EnrichmentService? = nil,
         progress: ProgressIndicator = ProgressIndicator()
     ) {
         self.configuration = configuration
@@ -64,6 +70,10 @@ public final class TripVisualizerService {
         self.mapGenerator = mapGenerator
         self.fragmentAggregator = fragmentAggregator
         self.dataExportGenerator = dataExportGenerator
+        self.enrichmentService = enrichmentService ?? EnrichmentService(
+            dataDogClient: dataDogClient,
+            configuration: configuration
+        )
         self.progress = progress
     }
 
@@ -148,12 +158,11 @@ public final class TripVisualizerService {
         try prepareOutputDirectory(for: tripId)
 
         // Step 4: Generate per-log outputs if enabled
-        var perLogOutputCount = 0
         if configuration.perLogOutput && logs.count > 0 {
             progress.start(.generating, showSpinner: false)
             progress.update("Generating route segment outputs...")
-            perLogOutputCount = try await generateRouteSegmentOutputs(tripId: tripId, logs: logs)
-            progress.complete("Generated \(perLogOutputCount) route segment output(s)")
+            _ = try await generateRouteSegmentOutputs(tripId: tripId, logs: logs)
+            progress.complete("Generated output for \(logs.count) route segment(s)")
         }
 
         // Step 5: Aggregate logs into unified route
@@ -183,13 +192,31 @@ public final class TripVisualizerService {
             truncated: truncated
         )
 
-        // Step 7: Generate outputs with segment support
+        // Step 7: Fetch enrichment data (order addresses, restaurant location)
+        progress.update("Fetching enrichment data...")
+        let enrichmentResult = await fetchEnrichmentData(
+            tripId: tripId,
+            logs: logs,
+            logEntries: logEntries
+        )
+
+        if enrichmentResult.hasData {
+            logInfo("Enrichment: \(enrichmentResult.summary)")
+        }
+        if enrichmentResult.hasWarnings {
+            for warning in enrichmentResult.warnings {
+                logWarning(warning)
+            }
+        }
+
+        // Step 8: Generate outputs with segment support
         progress.start(.generating)
         let outputCount = try await generateOutputsWithSegments(
             tripId: tripId,
             logs: logs,
             route: unifiedRoute,
-            metadata: metadata
+            metadata: metadata,
+            enrichmentResult: enrichmentResult
         )
 
         // Show summary
@@ -420,6 +447,83 @@ public final class TripVisualizerService {
         return formatter.date(from: timestamp) ?? Date()
     }
 
+    // MARK: - Enrichment Data
+
+    /// Fetches enrichment data for a trip (order addresses, restaurant location)
+    ///
+    /// Extracts orderIds from log waypoints and location_number from log attributes,
+    /// then calls the enrichment service to fetch additional data.
+    ///
+    /// - Parameters:
+    ///   - tripId: Trip UUID
+    ///   - logs: Parsed LogFragments (for orderIds)
+    ///   - logEntries: Raw DataDog log entries (for location_number)
+    /// - Returns: EnrichmentResult with delivery destinations and restaurant location
+    private func fetchEnrichmentData(
+        tripId: UUID,
+        logs: [LogFragment],
+        logEntries: [DataDogLogEntry]
+    ) async -> EnrichmentResult {
+        // T040: Extract unique orderIds from waypoints
+        let orderIds = extractOrderIds(from: logs)
+        logDebug("Found \(orderIds.count) unique order IDs for enrichment")
+
+        // T041: Extract location_number from log attributes
+        let locationNumber = extractLocationNumber(from: logEntries)
+        if let locNum = locationNumber {
+            logDebug("Found location number: \(locNum)")
+        }
+
+        // T042: Call enrichment service
+        return await enrichmentService.fetchEnrichmentData(
+            orderIds: orderIds,
+            locationNumber: locationNumber
+        )
+    }
+
+    /// Extracts unique order IDs from log waypoints (T040)
+    ///
+    /// - Parameter logs: Array of LogFragments
+    /// - Returns: Array of unique order UUIDs in first-occurrence order
+    private func extractOrderIds(from logs: [LogFragment]) -> [UUID] {
+        var seen = Set<UUID>()
+        var orderIds: [UUID] = []
+
+        for log in logs {
+            for waypoint in log.waypoints {
+                guard let orderId = waypoint.orderId else { continue }
+                if !seen.contains(orderId) {
+                    seen.insert(orderId)
+                    orderIds.append(orderId)
+                }
+            }
+        }
+
+        return orderIds
+    }
+
+    /// Extracts location number from log attributes (T041)
+    ///
+    /// Looks for @location_number in log attributes. Returns the first found.
+    ///
+    /// - Parameter logEntries: Array of raw DataDog log entries
+    /// - Returns: Location number string or nil if not found
+    private func extractLocationNumber(from logEntries: [DataDogLogEntry]) -> String? {
+        for entry in logEntries {
+            // Check for location_number in attributes
+            if let locationNumber = entry.attributes.attributes["location_number"] as? String,
+               !locationNumber.isEmpty {
+                return locationNumber
+            }
+            // Also check @location_number format
+            if let locationNumber = entry.attributes.attributes["@location_number"] as? String,
+               !locationNumber.isEmpty {
+                return locationNumber
+            }
+        }
+        return nil
+    }
+
     // MARK: - Output Directory Management
 
     /// Prepares the output directory for a trip, removing any existing output
@@ -454,13 +558,15 @@ public final class TripVisualizerService {
     ///   - logs: Array of LogFragment for data export generation
     ///   - route: Unified route with segments
     ///   - metadata: Trip processing metadata
+    ///   - enrichmentResult: Enrichment data (delivery destinations, restaurant location)
     /// - Returns: Number of successfully generated outputs
     @discardableResult
     private func generateOutputsWithSegments(
         tripId: UUID,
         logs: [LogFragment],
         route: UnifiedRoute,
-        metadata: TripMetadata
+        metadata: TripMetadata,
+        enrichmentResult: EnrichmentResult = .empty
     ) async throws -> Int {
         // Output directory is already prepared by prepareOutputDirectory()
         let baseOutputDir = configuration.outputDirectory
@@ -478,15 +584,26 @@ public final class TripVisualizerService {
                 case .html:
                     progress.update("Generating HTML map...")
                     let path = (outputDir as NSString).appendingPathComponent("\(baseName).html")
-                    try mapGenerator.writeHTML(tripId: tripId, segments: route.segments, to: path)
+                    // T043: Pass enrichment result for marker rendering
+                    try mapGenerator.writeHTML(
+                        tripId: tripId,
+                        segments: route.segments,
+                        enrichmentResult: enrichmentResult,
+                        configuration: configuration,
+                        to: path
+                    )
                     print("HTML: \(path)")
                     successCount += 1
 
                 case .image:
                     progress.start(.downloading)
                     let path = (outputDir as NSString).appendingPathComponent("\(baseName).png")
-                    // Use segments for static maps (gray for gaps)
-                    guard let url = mapGenerator.generateStaticMapsURL(segments: route.segments) else {
+                    // T043: Pass enrichment result for marker rendering
+                    guard let url = mapGenerator.generateStaticMapsURL(
+                        segments: route.segments,
+                        enrichmentResult: enrichmentResult,
+                        configuration: configuration
+                    ) else {
                         throw TripVisualizerError.noRouteData
                     }
 
@@ -499,7 +616,12 @@ public final class TripVisualizerService {
 
                 case .url:
                     progress.update("Generating URLs...")
-                    if let url = mapGenerator.generateStaticMapsURL(segments: route.segments) {
+                    // T043: Pass enrichment result for marker rendering
+                    if let url = mapGenerator.generateStaticMapsURL(
+                        segments: route.segments,
+                        enrichmentResult: enrichmentResult,
+                        configuration: configuration
+                    ) {
                         print("Static Maps URL: \(url.absoluteString)")
                     }
                     if let webURL = mapGenerator.generateGoogleMapsWebURL(waypoints: route.waypoints) {
@@ -518,11 +640,13 @@ public final class TripVisualizerService {
         // Export failure is non-fatal - log warning but continue
         do {
             progress.update("Writing data export...")
+            // T044: Pass enrichment result for export
             let exportPath = try dataExportGenerator.generateAndWrite(
                 tripId: tripId,
                 logs: logs,
                 route: route,
                 metadata: metadata,
+                enrichmentResult: enrichmentResult,
                 to: outputDir
             )
             logInfo("Data export written to \(exportPath)")
@@ -629,7 +753,7 @@ public final class TripVisualizerService {
             }
         }
 
-        logInfo("Generated \(totalOutputs) route segment outputs in \(routeSegmentsDir)")
+        logInfo("Generated output for \(logs.count) route segment(s) in \(routeSegmentsDir)")
         return totalOutputs
     }
 

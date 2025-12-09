@@ -127,6 +127,8 @@ public final class DataDogClient {
         request.setValue(appKey, forHTTPHeaderField: "DD-APPLICATION-KEY")
 
         let query = configuration.buildDatadogQuery(tripId: tripId)
+        logDebug("DataDog query (trip logs): \(query)")
+
         let body: [String: Any] = [
             "filter": [
                 "query": query,
@@ -156,6 +158,113 @@ public final class DataDogClient {
         }
     }
 
+    // MARK: - Enrichment Methods
+
+    /// Fetches logs for GetDeliveryOrder API calls for a specific order.
+    ///
+    /// Used to retrieve delivery address and coordinates for an order.
+    ///
+    /// - Parameters:
+    ///   - orderId: The order UUID to search for
+    ///   - limit: Maximum logs to return (default: 10)
+    /// - Returns: Array of DataDogLogEntry containing order data
+    /// - Throws: `TripVisualizerError` on failure
+    public func fetchDeliveryOrderLogs(orderId: UUID, limit: Int = 10) async throws -> [DataDogLogEntry] {
+        let query = configuration.buildDeliveryOrderQuery(orderId: orderId)
+        return try await fetchEnrichmentLogs(query: query, limit: limit)
+    }
+
+    /// Fetches logs for GetLocationsDetails API calls.
+    ///
+    /// Used to retrieve restaurant location data by location_number.
+    /// Only fetches the most recent log since location data is static.
+    ///
+    /// - Parameters:
+    ///   - locationNumber: Optional 5-digit location identifier to filter by
+    ///   - limit: Maximum logs to return (default: 1, only need most recent)
+    /// - Returns: Array of DataDogLogEntry containing location data
+    /// - Throws: `TripVisualizerError` on failure
+    public func fetchLocationDetailsLogs(locationNumber: String? = nil, limit: Int = 1) async throws -> [DataDogLogEntry] {
+        let query: String
+        if let locationNumber = locationNumber {
+            query = configuration.buildLocationsDetailsQuery(locationNumber: locationNumber)
+        } else {
+            query = configuration.buildLocationsDetailsQuery()
+        }
+        return try await fetchEnrichmentLogs(query: query, limit: limit)
+    }
+
+    /// Fetches enrichment logs using a custom query string.
+    ///
+    /// This is a generic method for fetching any type of enrichment log
+    /// from DataDog using the provided query.
+    ///
+    /// - Parameters:
+    ///   - query: DataDog query string
+    ///   - limit: Maximum logs to return
+    /// - Returns: Array of DataDogLogEntry sorted by timestamp ascending
+    /// - Throws: `TripVisualizerError` on failure
+    public func fetchEnrichmentLogs(query: String, limit: Int) async throws -> [DataDogLogEntry] {
+        // Validate credentials
+        guard !apiKey.isEmpty else {
+            throw TripVisualizerError.missingEnvironmentVariable("DD_API_KEY")
+        }
+        guard !appKey.isEmpty else {
+            throw TripVisualizerError.missingEnvironmentVariable("DD_APP_KEY")
+        }
+
+        let request = try buildEnrichmentSearchRequest(query: query, limit: limit)
+
+        let response = try await RetryHandler.withRetry(
+            retryCount: configuration.retryAttempts
+        ) {
+            let (data, response) = try await performRequest(request)
+            try validateResponse(response)
+            return try parseResponse(data)
+        }
+
+        // Sort by timestamp ascending (oldest first)
+        return response.data.sorted { entry1, entry2 in
+            entry1.attributes.timestamp < entry2.attributes.timestamp
+        }
+    }
+
+    /// Builds a search request for enrichment queries.
+    ///
+    /// - Parameters:
+    ///   - query: DataDog query string
+    ///   - limit: Maximum logs to return
+    /// - Returns: Configured URLRequest
+    private func buildEnrichmentSearchRequest(query: String, limit: Int) throws -> URLRequest {
+        let urlString = configuration.datadogAPIURL + Self.searchEndpoint
+        guard let url = URL(string: urlString) else {
+            throw TripVisualizerError.networkUnreachable("Invalid DataDog API URL")
+        }
+
+        logDebug("DataDog query (enrichment): \(query)")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "DD-API-KEY")
+        request.setValue(appKey, forHTTPHeaderField: "DD-APPLICATION-KEY")
+
+        let body: [String: Any] = [
+            "filter": [
+                "query": query,
+                "from": "now-30d",
+                "to": "now"
+            ],
+            "sort": "timestamp",
+            "page": [
+                "limit": limit
+            ]
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
     /// Generates a link to view the log in DataDog UI
     /// - Parameter logId: The log entry ID
     /// - Returns: URL to view the log in DataDog
@@ -173,7 +282,7 @@ public final class DataDogClient {
         default:
             baseURL = "https://app.datadoghq.com"
         }
-        return "\(baseURL)/logs?query=@id:\(logId)"
+        return "\(baseURL)/logs?event=\(logId)"
     }
 
     // MARK: - Private Methods
