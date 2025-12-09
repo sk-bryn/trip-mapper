@@ -35,6 +35,9 @@ public struct TripDataExport: Codable, Equatable, Sendable {
     /// Array of route segment details
     public let routeSegments: [RouteSegmentExport]
 
+    /// Enrichment data (delivery destinations, restaurant location, status)
+    public let enrichmentResult: EnrichmentResult?
+
     // MARK: - Initialization
 
     public init(
@@ -42,13 +45,15 @@ public struct TripDataExport: Codable, Equatable, Sendable {
         generatedAt: Date,
         summary: ExportSummary,
         orderSequence: [String],
-        routeSegments: [RouteSegmentExport]
+        routeSegments: [RouteSegmentExport],
+        enrichmentResult: EnrichmentResult? = nil
     ) {
         self.tripId = tripId
         self.generatedAt = generatedAt
         self.summary = summary
         self.orderSequence = orderSequence
         self.routeSegments = routeSegments
+        self.enrichmentResult = enrichmentResult
     }
 }
 
@@ -62,12 +67,14 @@ extension TripDataExport {
     ///   - logs: Array of LogFragment from DataDog (ordered by timestamp)
     ///   - route: The UnifiedRoute with aggregated waypoints
     ///   - metadata: TripMetadata with processing info
+    ///   - enrichmentResult: Optional enrichment data (delivery destinations, restaurant location)
     /// - Returns: A populated TripDataExport ready for serialization
     public static func from(
         tripId: UUID,
         logs: [LogFragment],
         route: UnifiedRoute,
-        metadata: TripMetadata
+        metadata: TripMetadata,
+        enrichmentResult: EnrichmentResult? = nil
     ) -> TripDataExport {
         // Build route segment exports
         let routeSegments = logs.enumerated().map { index, fragment in
@@ -95,7 +102,8 @@ extension TripDataExport {
             generatedAt: Date(),
             summary: summary,
             orderSequence: orderSequence,
-            routeSegments: routeSegments
+            routeSegments: routeSegments,
+            enrichmentResult: enrichmentResult
         )
     }
 

@@ -222,6 +222,192 @@ final class VisualizationIntegrationTests: XCTestCase {
         }
     }
 
+    // MARK: - Enrichment Integration Tests (T045)
+
+    func testFullPipelineWithEnrichmentData() throws {
+        // Given - Route with enrichment data
+        let tripId = UUID()
+        let orderId1 = UUID()
+        let orderId2 = UUID()
+
+        let waypoints = [
+            Waypoint(latitude: 33.98325, longitude: -81.096, orderId: nil),  // Start (restaurant)
+            Waypoint(latitude: 33.9000, longitude: -81.100, orderId: orderId1),
+            Waypoint(latitude: 33.8500, longitude: -81.150, orderId: orderId1),
+            Waypoint(latitude: 33.7490, longitude: -84.3880, orderId: orderId2)  // End (delivery)
+        ]
+
+        let segments = [RouteSegment(waypoints: waypoints, type: .continuous, sourceFragmentId: nil)]
+        let generator = MapGenerator(apiKey: "test-api-key")
+        let configuration = Configuration.defaultConfig
+        let outputPath = (tempDirectory as NSString).appendingPathComponent("\(tripId.uuidString).html")
+
+        // Create enrichment data
+        let restaurant = RestaurantLocation(
+            locationNumber: "00070",
+            name: "West Columbia",
+            address1: "2299 Augusta Rd",
+            address2: nil,
+            city: "West Columbia",
+            state: "SC",
+            zip: "29169",
+            latitude: 33.98325,
+            longitude: -81.096,
+            operatorName: nil,
+            timeZone: nil
+        )
+
+        let delivery = DeliveryDestination(
+            orderId: orderId2,
+            address: "123 Main St, Atlanta, GA 30301",
+            addressDisplayLine1: "123 Main St",
+            addressDisplayLine2: "Atlanta, GA 30301",
+            latitude: 33.7490,
+            longitude: -84.3880,
+            dropoffInstructions: "Leave at door"
+        )
+
+        let enrichmentResult = EnrichmentResult(
+            restaurantLocation: restaurant,
+            deliveryDestinations: [delivery],
+            status: EnrichmentStatus.allDataFound,
+            warnings: []
+        )
+
+        // When - Generate HTML output with enrichment
+        try generator.writeHTML(
+            tripId: tripId,
+            segments: segments,
+            enrichmentResult: enrichmentResult,
+            configuration: configuration,
+            to: outputPath
+        )
+
+        // Then - Verify output contains enrichment markers
+        let content = try String(contentsOfFile: outputPath, encoding: .utf8)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputPath))
+        XCTAssertTrue(content.contains("West Columbia"))  // Restaurant name
+        XCTAssertTrue(content.contains("123 Main St"))    // Delivery address
+    }
+
+    func testEnrichmentDataExport() throws {
+        // Given - Trip data with enrichment
+        let tripId = UUID()
+        let orderId = UUID()
+
+        let waypoints = [
+            Waypoint(latitude: 33.98325, longitude: -81.096, orderId: orderId),
+            Waypoint(latitude: 33.7490, longitude: -84.3880, orderId: orderId)
+        ]
+
+        let log = LogFragment(
+            id: "log123",
+            tripId: tripId,
+            timestamp: Date(),
+            waypoints: waypoints,
+            logLink: "https://app.datadoghq.com/logs?event=log123"
+        )
+
+        let route = UnifiedRoute(
+            tripId: tripId,
+            waypoints: waypoints,
+            segments: [RouteSegment(waypoints: waypoints, type: .continuous, sourceFragmentId: nil)],
+            fragmentCount: 1,
+            isComplete: true
+        )
+
+        let metadata = TripMetadata(
+            totalLogs: 1,
+            truncated: false,
+            firstTimestamp: Date(),
+            lastTimestamp: Date()
+        )
+
+        let delivery = DeliveryDestination(
+            orderId: orderId,
+            address: "456 Oak Ave, Boston, MA 02101",
+            addressDisplayLine1: "456 Oak Ave",
+            addressDisplayLine2: "Boston, MA 02101",
+            latitude: 42.3601,
+            longitude: -71.0589,
+            dropoffInstructions: nil
+        )
+
+        let enrichmentResult = EnrichmentResult(
+            restaurantLocation: nil,
+            deliveryDestinations: [delivery],
+            status: EnrichmentStatus(orderDataFound: true, locationDataFound: false),
+            warnings: ["Restaurant location unavailable"]
+        )
+
+        let generator = DataExportGenerator()
+        let outputPath = (tempDirectory as NSString).appendingPathComponent("map-data.json")
+
+        // When - Generate export with enrichment
+        try generator.generateAndWrite(
+            tripId: tripId,
+            logs: [log],
+            route: route,
+            metadata: metadata,
+            enrichmentResult: enrichmentResult,
+            to: tempDirectory
+        )
+
+        // Then - Verify export contains enrichment data
+        let data = try Data(contentsOf: URL(fileURLWithPath: outputPath))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let export = try decoder.decode(TripDataExport.self, from: data)
+
+        XCTAssertNotNil(export.enrichmentResult)
+        XCTAssertEqual(export.enrichmentResult?.deliveryDestinations.count, 1)
+        XCTAssertEqual(export.enrichmentResult?.deliveryDestinations.first?.orderId, orderId)
+        XCTAssertTrue(export.enrichmentResult?.status.orderDataFound ?? false)
+        XCTAssertFalse(export.enrichmentResult?.status.locationDataFound ?? true)
+        XCTAssertEqual(export.enrichmentResult?.warnings.count, 1)
+    }
+
+    func testStaticMapsURLWithEnrichment() {
+        // Given - Route segments with enrichment
+        let waypoints = createSampleRoute()
+        let segments = [RouteSegment(waypoints: waypoints, type: .continuous, sourceFragmentId: nil)]
+        let generator = MapGenerator(apiKey: "test-api-key")
+        let configuration = Configuration.defaultConfig
+
+        let restaurant = RestaurantLocation(
+            locationNumber: "00070",
+            name: "Test Restaurant",
+            address1: "123 Test St",
+            address2: nil,
+            city: "Test City",
+            state: "TS",
+            zip: "12345",
+            latitude: 37.7749,
+            longitude: -122.4194,
+            operatorName: nil,
+            timeZone: nil
+        )
+
+        let enrichmentResult = EnrichmentResult(
+            restaurantLocation: restaurant,
+            deliveryDestinations: [],
+            status: EnrichmentStatus(orderDataFound: false, locationDataFound: true),
+            warnings: []
+        )
+
+        // When
+        let url = generator.generateStaticMapsURL(
+            segments: segments,
+            enrichmentResult: enrichmentResult,
+            configuration: configuration
+        )
+
+        // Then
+        XCTAssertNotNil(url)
+        let urlString = url?.absoluteString ?? ""
+        XCTAssertTrue(urlString.contains("markers="))  // Should have markers
+    }
+
     // MARK: - Helpers
 
     private func createSampleRoute() -> [Waypoint] {

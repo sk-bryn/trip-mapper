@@ -314,7 +314,7 @@ public final class MapGenerator {
 
         do {
             try html.write(toFile: path, atomically: true, encoding: .utf8)
-            logInfo("HTML map written to \(path)")
+            logDebug("HTML map written to \(path)")
         } catch {
             throw TripVisualizerError.cannotWriteOutput(
                 path: path,
@@ -333,6 +333,39 @@ public final class MapGenerator {
         // Wrap in single continuous segment for backward compatibility
         let segment = RouteSegment(waypoints: waypoints, type: .continuous, sourceFragmentId: nil)
         try writeHTML(tripId: tripId, segments: [segment], to: path)
+    }
+
+    /// Writes HTML content to a file with enrichment markers
+    /// - Parameters:
+    ///   - tripId: Trip UUID for the title
+    ///   - segments: Route segments with type information
+    ///   - enrichmentResult: Enrichment data for markers
+    ///   - configuration: Configuration for marker styles
+    ///   - path: Output file path
+    /// - Throws: `TripVisualizerError` on file write failure
+    public func writeHTML(
+        tripId: UUID,
+        segments: [RouteSegment],
+        enrichmentResult: EnrichmentResult,
+        configuration: Configuration,
+        to path: String
+    ) throws {
+        let html = try generateHTML(
+            tripId: tripId,
+            segments: segments,
+            enrichmentResult: enrichmentResult,
+            configuration: configuration
+        )
+
+        do {
+            try html.write(toFile: path, atomically: true, encoding: .utf8)
+            logDebug("HTML map written to \(path)")
+        } catch {
+            throw TripVisualizerError.cannotWriteOutput(
+                path: path,
+                reason: error.localizedDescription
+            )
+        }
     }
 
     // MARK: - Static Maps URL Generation
@@ -498,6 +531,373 @@ public final class MapGenerator {
         urlString += "\(destination.latitude),\(destination.longitude)/"
 
         return URL(string: urlString)
+    }
+
+    // MARK: - Enrichment Marker Generation
+
+    /// Generates JavaScript code for delivery destination markers (from enrichment data).
+    ///
+    /// These markers represent the intended delivery addresses from GetDeliveryOrder logs,
+    /// displayed separately from actual route waypoints to enable comparison.
+    ///
+    /// - Parameters:
+    ///   - destinations: Array of delivery destinations from enrichment
+    ///   - style: Marker style configuration
+    /// - Returns: JavaScript code string for marker creation
+    public func generateDeliveryDestinationMarkersJS(
+        _ destinations: [DeliveryDestination],
+        style: MarkerStyle
+    ) -> String {
+        guard !destinations.isEmpty else { return "" }
+
+        return destinations.enumerated().map { (index, destination) in
+            let label = "\(index + 1)"
+            let escapedAddress = destination.formattedAddress
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n")
+            let escapedInstructions = destination.dropoffInstructions?
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n") ?? ""
+            let infoContent = escapedInstructions.isEmpty
+                ? escapedAddress
+                : "\(escapedAddress)<br><i>\(escapedInstructions)</i>"
+
+            return """
+                  // Delivery destination \(index + 1)
+                  const deliveryMarker\(index) = new google.maps.Marker({
+                    position: {lat: \(destination.latitude), lng: \(destination.longitude)},
+                    map: map,
+                    label: { text: "\(label)", color: "white", fontWeight: "bold" },
+                    icon: {
+                      path: google.maps.SymbolPath.CIRCLE,
+                      scale: 12,
+                      fillColor: "\(style.cssColor)",
+                      fillOpacity: 1,
+                      strokeColor: "#FFFFFF",
+                      strokeWeight: 2
+                    },
+                    title: "Delivery \(label): \(destination.shortDescription)"
+                  });
+                  const deliveryInfo\(index) = new google.maps.InfoWindow({
+                    content: "<strong>Delivery \(label)</strong><br>\(infoContent)"
+                  });
+                  deliveryMarker\(index).addListener("click", () => {
+                    deliveryInfo\(index).open(map, deliveryMarker\(index));
+                  });
+            """
+        }.joined(separator: "\n")
+    }
+
+    /// Generates JavaScript code for restaurant origin marker (from enrichment data).
+    ///
+    /// - Parameters:
+    ///   - location: Restaurant location from enrichment (nil if not available)
+    ///   - style: Marker style configuration
+    /// - Returns: JavaScript code string for marker creation
+    public func generateRestaurantMarkerJS(
+        _ location: RestaurantLocation?,
+        style: MarkerStyle
+    ) -> String {
+        guard let restaurant = location else { return "" }
+
+        let escapedName = restaurant.name
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedAddress = restaurant.formattedAddress
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+
+        return """
+              // Restaurant origin
+              const restaurantMarker = new google.maps.Marker({
+                position: {lat: \(restaurant.latitude), lng: \(restaurant.longitude)},
+                map: map,
+                label: { text: "R", color: "white", fontWeight: "bold" },
+                icon: {
+                  path: google.maps.SymbolPath.CIRCLE,
+                  scale: 14,
+                  fillColor: "\(style.cssColor)",
+                  fillOpacity: 1,
+                  strokeColor: "#FFFFFF",
+                  strokeWeight: 2
+                },
+                title: "\(escapedName)"
+              });
+              const restaurantInfo = new google.maps.InfoWindow({
+                content: "<strong>\(escapedName)</strong><br>\(escapedAddress)"
+              });
+              restaurantMarker.addListener("click", () => {
+                restaurantInfo.open(map, restaurantMarker);
+              });
+        """
+    }
+
+    /// Generates HTML content with interactive Google Map including enrichment markers.
+    ///
+    /// - Parameters:
+    ///   - tripId: Trip UUID for the title
+    ///   - segments: Route segments with type information
+    ///   - enrichmentResult: Enrichment data (delivery destinations and restaurant)
+    ///   - configuration: Configuration for marker styles
+    /// - Returns: HTML string
+    /// - Throws: `TripVisualizerError` if segments are empty
+    public func generateHTML(
+        tripId: UUID,
+        segments: [RouteSegment],
+        enrichmentResult: EnrichmentResult,
+        configuration: Configuration
+    ) throws -> String {
+        guard !segments.isEmpty else {
+            throw TripVisualizerError.noRouteData
+        }
+
+        let allWaypoints = segments.flatMap { $0.waypoints }
+        guard !allWaypoints.isEmpty else {
+            throw TripVisualizerError.noRouteData
+        }
+
+        let hasGaps = segments.contains { $0.isGap }
+        let segmentsJS = generateSegmentsJS(segments)
+        let deliveryPoints = findDeliveryPoints(allWaypoints)
+        let waypointDeliveryMarkersJS = generateDeliveryMarkersJS(deliveryPoints)
+
+        // Enrichment markers
+        let enrichmentDeliveryMarkersJS = generateDeliveryDestinationMarkersJS(
+            enrichmentResult.deliveryDestinations,
+            style: configuration.deliveryDestinationMarkerStyle
+        )
+        let restaurantMarkerJS = generateRestaurantMarkerJS(
+            enrichmentResult.restaurantLocation,
+            style: configuration.restaurantOriginMarkerStyle
+        )
+
+        // Generate legend with enrichment entries
+        let legendHTML = generateEnrichmentLegendHTML(
+            hasGaps: hasGaps,
+            hasDeliveryDestinations: !enrichmentResult.deliveryDestinations.isEmpty,
+            hasRestaurant: enrichmentResult.restaurantLocation != nil,
+            configuration: configuration
+        )
+
+        // Collect all coordinates for bounds fitting (include enrichment locations)
+        var allCoordinatesJS = coordinatesToJSON(allWaypoints)
+        if !enrichmentResult.deliveryDestinations.isEmpty || enrichmentResult.restaurantLocation != nil {
+            var extraCoords: [String] = []
+            for dest in enrichmentResult.deliveryDestinations {
+                extraCoords.append("{lat: \(dest.latitude), lng: \(dest.longitude)}")
+            }
+            if let restaurant = enrichmentResult.restaurantLocation {
+                extraCoords.append("{lat: \(restaurant.latitude), lng: \(restaurant.longitude)}")
+            }
+            if !extraCoords.isEmpty {
+                // Remove trailing ] and add extra coords
+                allCoordinatesJS = String(allCoordinatesJS.dropLast()) + ", " + extraCoords.joined(separator: ", ") + "]"
+            }
+        }
+
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Trip Route: \(tripId.uuidString)</title>
+          <style>
+            #map { height: 100vh; width: 100%; }
+            .legend {
+              position: absolute;
+              bottom: 20px;
+              left: 20px;
+              background: white;
+              padding: 10px 15px;
+              border-radius: 4px;
+              box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+              font-family: Arial, sans-serif;
+              font-size: 12px;
+              z-index: 1;
+            }
+            .legend-item { display: flex; align-items: center; margin: 5px 0; }
+            .solid-line { width: 30px; height: 3px; background: #\(routeColor); margin-right: 8px; }
+            .dashed-line { width: 30px; height: 3px; background: repeating-linear-gradient(90deg, #\(Self.gapColor) 0, #\(Self.gapColor) 5px, transparent 5px, transparent 10px); margin-right: 8px; }
+            .marker-circle { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+          </style>
+        </head>
+        <body>
+          <div id="map"></div>
+        \(legendHTML)
+          <script>
+            function initMap() {
+              const firstCoord = {lat: \(allWaypoints[0].latitude), lng: \(allWaypoints[0].longitude)};
+              const map = new google.maps.Map(document.getElementById("map"), {
+                zoom: 12,
+                center: firstCoord
+              });
+
+              // Render segments
+        \(segmentsJS)
+
+              // Start marker
+              new google.maps.Marker({
+                position: firstCoord,
+                map: map,
+                icon: "http://maps.google.com/mapfiles/ms/icons/green-dot.png",
+                title: "Start"
+              });
+
+              // End marker
+              const lastCoord = {lat: \(allWaypoints.last!.latitude), lng: \(allWaypoints.last!.longitude)};
+              new google.maps.Marker({
+                position: lastCoord,
+                map: map,
+                icon: "http://maps.google.com/mapfiles/ms/icons/red-dot.png",
+                title: "End"
+              });
+
+              // Waypoint delivery markers (from route data)
+        \(waypointDeliveryMarkersJS)
+
+              // Enrichment: Delivery destination markers
+        \(enrichmentDeliveryMarkersJS)
+
+              // Enrichment: Restaurant origin marker
+        \(restaurantMarkerJS)
+
+              // Fit bounds
+              const bounds = new google.maps.LatLngBounds();
+              \(allCoordinatesJS).forEach(c => bounds.extend(c));
+              map.fitBounds(bounds);
+            }
+          </script>
+          <script async defer
+            src="https://maps.googleapis.com/maps/api/js?key=\(apiKey)&callback=initMap">
+          </script>
+        </body>
+        </html>
+        """
+    }
+
+    /// Generates a Google Static Maps API URL with enrichment markers.
+    ///
+    /// - Parameters:
+    ///   - segments: Route segments with type information
+    ///   - enrichmentResult: Enrichment data for delivery and restaurant markers
+    ///   - configuration: Configuration for marker styles
+    ///   - width: Image width in pixels (default: 640)
+    ///   - height: Image height in pixels (default: 480)
+    /// - Returns: Static Maps URL or nil if segments are empty
+    public func generateStaticMapsURL(
+        segments: [RouteSegment],
+        enrichmentResult: EnrichmentResult,
+        configuration: Configuration,
+        width: Int = defaultWidth,
+        height: Int = defaultHeight
+    ) -> URL? {
+        guard !segments.isEmpty else { return nil }
+
+        let allWaypoints = segments.flatMap { $0.waypoints }
+        guard !allWaypoints.isEmpty else { return nil }
+
+        var components = URLComponents(string: Self.staticMapsBaseURL)!
+
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "size", value: "\(width)x\(height)"),
+            URLQueryItem(name: "key", value: apiKey)
+        ]
+
+        // Add path for each segment with appropriate color
+        for segment in segments {
+            let color = segment.isGap ? Self.gapColor : routeColor
+            let encodedPath = polylineEncoder.encode(segment.waypoints)
+            queryItems.append(URLQueryItem(
+                name: "path",
+                value: "color:0x\(color)|weight:\(routeWeight)|enc:\(encodedPath)"
+            ))
+        }
+
+        // Add start marker (green)
+        if let first = allWaypoints.first {
+            queryItems.append(URLQueryItem(
+                name: "markers",
+                value: "color:green|label:S|\(first.latitude),\(first.longitude)"
+            ))
+        }
+
+        // Add end marker (red)
+        if let last = allWaypoints.last, allWaypoints.count > 1 {
+            queryItems.append(URLQueryItem(
+                name: "markers",
+                value: "color:red|label:E|\(last.latitude),\(last.longitude)"
+            ))
+        }
+
+        // Add waypoint delivery markers (orange with numbers)
+        let deliveryPoints = findDeliveryPoints(allWaypoints)
+        for point in deliveryPoints {
+            queryItems.append(URLQueryItem(
+                name: "markers",
+                value: "color:orange|label:\(point.orderNumber)|\(point.waypoint.latitude),\(point.waypoint.longitude)"
+            ))
+        }
+
+        // Add enrichment delivery destination markers (configured color)
+        let deliveryStyle = configuration.deliveryDestinationMarkerStyle
+        for (index, destination) in enrichmentResult.deliveryDestinations.enumerated() {
+            let label = index < 9 ? "\(index + 1)" : "D"
+            queryItems.append(URLQueryItem(
+                name: "markers",
+                value: "color:\(deliveryStyle.urlColor)|label:\(label)|\(destination.latitude),\(destination.longitude)"
+            ))
+        }
+
+        // Add restaurant origin marker (configured color)
+        if let restaurant = enrichmentResult.restaurantLocation {
+            let restaurantStyle = configuration.restaurantOriginMarkerStyle
+            queryItems.append(URLQueryItem(
+                name: "markers",
+                value: "color:\(restaurantStyle.urlColor)|label:R|\(restaurant.latitude),\(restaurant.longitude)"
+            ))
+        }
+
+        components.queryItems = queryItems
+        return components.url
+    }
+
+    /// Generates legend HTML including enrichment marker entries.
+    ///
+    /// - Parameters:
+    ///   - hasGaps: Whether gap segments are present
+    ///   - hasDeliveryDestinations: Whether enrichment delivery destinations are present
+    ///   - hasRestaurant: Whether enrichment restaurant location is present
+    ///   - configuration: Configuration for marker styles
+    /// - Returns: HTML string for legend div
+    private func generateEnrichmentLegendHTML(
+        hasGaps: Bool,
+        hasDeliveryDestinations: Bool,
+        hasRestaurant: Bool,
+        configuration: Configuration
+    ) -> String {
+        var items: [String] = []
+
+        // Route legend items
+        items.append("<div class=\"legend-item\"><span class=\"solid-line\"></span> Route data</div>")
+
+        if hasGaps {
+            items.append("<div class=\"legend-item\"><span class=\"dashed-line\"></span> Gap (missing data)</div>")
+        }
+
+        // Enrichment legend items
+        if hasDeliveryDestinations {
+            let color = configuration.deliveryDestinationMarkerStyle.cssColor
+            items.append("<div class=\"legend-item\"><span class=\"marker-circle\" style=\"background:\(color)\"></span> Delivery destination</div>")
+        }
+
+        if hasRestaurant {
+            let color = configuration.restaurantOriginMarkerStyle.cssColor
+            items.append("<div class=\"legend-item\"><span class=\"marker-circle\" style=\"background:\(color)\"></span> Restaurant origin</div>")
+        }
+
+        return """
+          <div class="legend">
+            \(items.joined(separator: "\n            "))
+          </div>
+        """
     }
 
     // MARK: - Helpers

@@ -29,7 +29,7 @@ public final class DataExportGenerator {
     /// Creates a new DataExportGenerator.
     public init() {
         self.encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
     }
 
@@ -42,18 +42,21 @@ public final class DataExportGenerator {
     ///   - logs: Array of LogFragment from DataDog (ordered by timestamp)
     ///   - route: The UnifiedRoute with gap detection info
     ///   - metadata: TripMetadata with processing flags
+    ///   - enrichmentResult: Optional enrichment data (delivery destinations, restaurant location)
     /// - Returns: A populated TripDataExport ready for serialization
     public func generateExport(
         tripId: UUID,
         logs: [LogFragment],
         route: UnifiedRoute,
-        metadata: TripMetadata
+        metadata: TripMetadata,
+        enrichmentResult: EnrichmentResult? = nil
     ) -> TripDataExport {
         TripDataExport.from(
             tripId: tripId,
             logs: logs,
             route: route,
-            metadata: metadata
+            metadata: metadata,
+            enrichmentResult: enrichmentResult
         )
     }
 
@@ -95,6 +98,7 @@ public final class DataExportGenerator {
     ///   - logs: Array of LogFragment from DataDog
     ///   - route: The UnifiedRoute
     ///   - metadata: TripMetadata
+    ///   - enrichmentResult: Optional enrichment data (delivery destinations, restaurant location)
     ///   - outputDirectory: Directory to write the export file
     /// - Returns: Path to the written export file
     /// - Throws: `TripVisualizerError.cannotWriteOutput` on failure
@@ -104,13 +108,15 @@ public final class DataExportGenerator {
         logs: [LogFragment],
         route: UnifiedRoute,
         metadata: TripMetadata,
+        enrichmentResult: EnrichmentResult? = nil,
         to outputDirectory: String
     ) throws -> String {
         let export = generateExport(
             tripId: tripId,
             logs: logs,
             route: route,
-            metadata: metadata
+            metadata: metadata,
+            enrichmentResult: enrichmentResult
         )
 
         let filename = "map-data.json"

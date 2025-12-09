@@ -50,7 +50,7 @@ final class DataExportGeneratorTests: XCTestCase {
             tripId: tripId,
             timestamp: timestamp,
             waypoints: defaultWaypoints,
-            logLink: logLink ?? "https://app.datadoghq.com/logs?query=@id:\(id)"
+            logLink: logLink ?? "https://app.datadoghq.com/logs?event=\(id)"
         )
     }
 
@@ -543,6 +543,202 @@ final class DataExportGeneratorTests: XCTestCase {
         let export = try decoder.decode(TripDataExport.self, from: data)
 
         XCTAssertEqual(export.routeSegments.count, 2)
+    }
+
+    // MARK: - Enrichment Integration Tests (T034)
+
+    func testGenerateExportWithEnrichmentResult() {
+        let tripId = UUID()
+        let orderId = UUID()
+        let log = makeLogFragment(tripId: tripId, waypoints: [makeWaypoint(orderId: orderId)])
+        let route = makeUnifiedRoute(tripId: tripId)
+        let metadata = makeMetadata()
+
+        let destination = DeliveryDestination(
+            orderId: orderId,
+            address: "123 Main St, Atlanta, GA 30301",
+            addressDisplayLine1: "123 Main St",
+            addressDisplayLine2: "Atlanta, GA 30301",
+            latitude: 33.7490,
+            longitude: -84.3880,
+            dropoffInstructions: nil
+        )
+
+        let restaurant = RestaurantLocation(
+            locationNumber: "00070",
+            name: "West Columbia",
+            address1: "2299 Augusta Rd",
+            address2: nil,
+            city: "West Columbia",
+            state: "SC",
+            zip: "29169",
+            latitude: 33.98325,
+            longitude: -81.096,
+            operatorName: nil,
+            timeZone: nil
+        )
+
+        let enrichmentResult = EnrichmentResult(
+            restaurantLocation: restaurant,
+            deliveryDestinations: [destination],
+            status: EnrichmentStatus.allDataFound,
+            warnings: []
+        )
+
+        let export = generator.generateExport(
+            tripId: tripId,
+            logs: [log],
+            route: route,
+            metadata: metadata,
+            enrichmentResult: enrichmentResult
+        )
+
+        XCTAssertNotNil(export.enrichmentResult)
+        XCTAssertEqual(export.enrichmentResult?.restaurantLocation?.locationNumber, "00070")
+        XCTAssertEqual(export.enrichmentResult?.deliveryDestinations.count, 1)
+        XCTAssertTrue(export.enrichmentResult?.status.orderDataFound ?? false)
+        XCTAssertTrue(export.enrichmentResult?.status.locationDataFound ?? false)
+    }
+
+    func testGenerateExportWithNilEnrichment() {
+        let tripId = UUID()
+        let log = makeLogFragment(tripId: tripId)
+        let route = makeUnifiedRoute(tripId: tripId)
+        let metadata = makeMetadata()
+
+        let export = generator.generateExport(
+            tripId: tripId,
+            logs: [log],
+            route: route,
+            metadata: metadata,
+            enrichmentResult: nil
+        )
+
+        XCTAssertNil(export.enrichmentResult)
+    }
+
+    func testGenerateAndWriteWithEnrichmentResult() throws {
+        let tripId = UUID()
+        let orderId = UUID()
+        let log = makeLogFragment(tripId: tripId, waypoints: [makeWaypoint(orderId: orderId)])
+        let route = makeUnifiedRoute(tripId: tripId)
+        let metadata = makeMetadata()
+
+        let enrichmentResult = EnrichmentResult(
+            restaurantLocation: nil,
+            deliveryDestinations: [],
+            status: EnrichmentStatus(orderDataFound: false, locationDataFound: false),
+            warnings: ["Test warning for export"]
+        )
+
+        let path = try generator.generateAndWrite(
+            tripId: tripId,
+            logs: [log],
+            route: route,
+            metadata: metadata,
+            enrichmentResult: enrichmentResult,
+            to: tempDirectory
+        )
+
+        // Verify file exists and contains enrichment data
+        let content = try String(contentsOfFile: path)
+
+        XCTAssertTrue(content.contains("enrichmentResult"))
+        XCTAssertTrue(content.contains("status"))
+        XCTAssertTrue(content.contains("orderDataFound"))
+        XCTAssertTrue(content.contains("locationDataFound"))
+        XCTAssertTrue(content.contains("Test warning for export"))
+    }
+
+    func testWriteExportWithEnrichmentCreatesValidJSON() throws {
+        let tripId = UUID()
+        let summary = ExportSummary(
+            totalRouteSegments: 1,
+            totalWaypoints: 2,
+            totalOrders: 0,
+            hasGaps: false,
+            truncated: false,
+            incompleteData: false
+        )
+        let segment = RouteSegmentExport(
+            segmentIndex: 0,
+            datadogLogId: "log123",
+            datadogUrl: "https://app.datadoghq.com/logs",
+            timestamp: Date(),
+            waypointCount: 2,
+            orders: []
+        )
+
+        let orderId = UUID()
+        let destination = DeliveryDestination(
+            orderId: orderId,
+            address: "456 Oak Ave, Boston, MA 02101",
+            addressDisplayLine1: "456 Oak Ave",
+            addressDisplayLine2: "Boston, MA 02101",
+            latitude: 42.3601,
+            longitude: -71.0589,
+            dropoffInstructions: "Leave at door"
+        )
+
+        let enrichmentResult = EnrichmentResult(
+            restaurantLocation: nil,
+            deliveryDestinations: [destination],
+            status: EnrichmentStatus(orderDataFound: true, locationDataFound: false),
+            warnings: []
+        )
+
+        let export = TripDataExport(
+            tripId: tripId,
+            generatedAt: Date(),
+            summary: summary,
+            orderSequence: [],
+            routeSegments: [segment],
+            enrichmentResult: enrichmentResult
+        )
+
+        let path = (tempDirectory as NSString).appendingPathComponent("test-enrichment-export.json")
+
+        try generator.writeExport(export, to: path)
+
+        // Verify we can read it back with enrichment
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(TripDataExport.self, from: data)
+
+        XCTAssertNotNil(decoded.enrichmentResult)
+        XCTAssertEqual(decoded.enrichmentResult?.deliveryDestinations.count, 1)
+        XCTAssertEqual(decoded.enrichmentResult?.deliveryDestinations.first?.address, "456 Oak Ave, Boston, MA 02101")
+        XCTAssertTrue(decoded.enrichmentResult?.status.orderDataFound ?? false)
+        XCTAssertFalse(decoded.enrichmentResult?.status.locationDataFound ?? true)
+    }
+
+    func testEnrichmentStatusAlwaysPresentEvenWhenEmpty() throws {
+        let tripId = UUID()
+        let log = makeLogFragment(tripId: tripId)
+        let route = makeUnifiedRoute(tripId: tripId)
+        let metadata = makeMetadata()
+
+        let emptyEnrichment = EnrichmentResult.empty
+
+        let path = try generator.generateAndWrite(
+            tripId: tripId,
+            logs: [log],
+            route: route,
+            metadata: metadata,
+            enrichmentResult: emptyEnrichment,
+            to: tempDirectory
+        )
+
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(TripDataExport.self, from: data)
+
+        // Status should be present even with empty enrichment
+        XCTAssertNotNil(decoded.enrichmentResult)
+        XCTAssertFalse(decoded.enrichmentResult?.status.orderDataFound ?? true)
+        XCTAssertFalse(decoded.enrichmentResult?.status.locationDataFound ?? true)
     }
 
     // MARK: - Large Trip Tests

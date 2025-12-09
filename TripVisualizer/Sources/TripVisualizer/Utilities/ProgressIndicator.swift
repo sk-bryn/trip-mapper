@@ -52,6 +52,12 @@ public final class ProgressIndicator {
     /// Whether spinner is currently running
     private var isSpinning = false
 
+    /// Lock to synchronize spinner output with log writes
+    private let outputLock = NSLock()
+
+    /// Whether output is currently paused for logging
+    private var isPaused = false
+
     // MARK: - Singleton
 
     /// Shared progress indicator instance
@@ -108,9 +114,21 @@ public final class ProgressIndicator {
 
     /// Clears the current spinner line to allow clean output from other sources.
     /// Call this before logging or printing other messages while spinner is active.
+    /// This method acquires a lock to prevent race conditions with the background timer.
     public func clearCurrentLine() {
-        guard isEnabled, isSpinning else { return }
+        guard isEnabled else { return }
+        outputLock.lock()
+        isPaused = true
+        // Always clear the line in case there's any spinner output
         clearLine()
+    }
+
+    /// Resumes the spinner after a log message has been written.
+    /// Call this after logging to restart the spinner animation.
+    public func resumeSpinner() {
+        guard isEnabled else { return }
+        isPaused = false
+        outputLock.unlock()
     }
 
     /// Completes the current stage successfully
@@ -272,6 +290,14 @@ public final class ProgressIndicator {
         let msg = message
         spinnerTimer?.setEventHandler { [weak self] in
             guard let self = self, self.isSpinning else { return }
+
+            // Acquire lock to synchronize with log writes
+            self.outputLock.lock()
+            defer { self.outputLock.unlock() }
+
+            // Skip if paused for logging
+            guard !self.isPaused else { return }
+
             let frame = Self.spinnerFrames[self.spinnerIndex]
             self.spinnerIndex = (self.spinnerIndex + 1) % Self.spinnerFrames.count
 

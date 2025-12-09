@@ -154,9 +154,11 @@ public final class Logger {
     // MARK: - Output Methods
 
     private func writeToStderr(_ message: String) {
-        // Clear any active progress indicator line to prevent output collision
+        // Pause spinner, clear line, write log, then resume spinner
+        // This prevents race conditions with the background spinner timer
         ProgressIndicator.shared.clearCurrentLine()
         FileHandle.standardError.write(Data((message + "\n").utf8))
+        ProgressIndicator.shared.resumeSpinner()
     }
 
     private func writeToFile(_ message: String) {
