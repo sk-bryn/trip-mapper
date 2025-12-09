@@ -16,6 +16,7 @@ public final class TripVisualizerService {
     private let logParser: LogParser
     private let mapGenerator: MapGenerator
     private let fragmentAggregator: FragmentAggregator
+    private let dataExportGenerator: DataExportGenerator
     private let progress: ProgressIndicator
 
     // MARK: - Initialization
@@ -43,6 +44,7 @@ public final class TripVisualizerService {
             routeWeight: configuration.routeWeight
         )
         self.fragmentAggregator = FragmentAggregator()
+        self.dataExportGenerator = DataExportGenerator()
         self.progress = ProgressIndicator()
     }
 
@@ -53,6 +55,7 @@ public final class TripVisualizerService {
         logParser: LogParser,
         mapGenerator: MapGenerator,
         fragmentAggregator: FragmentAggregator = FragmentAggregator(),
+        dataExportGenerator: DataExportGenerator = DataExportGenerator(),
         progress: ProgressIndicator = ProgressIndicator()
     ) {
         self.configuration = configuration
@@ -60,6 +63,7 @@ public final class TripVisualizerService {
         self.logParser = logParser
         self.mapGenerator = mapGenerator
         self.fragmentAggregator = fragmentAggregator
+        self.dataExportGenerator = dataExportGenerator
         self.progress = progress
     }
 
@@ -183,6 +187,7 @@ public final class TripVisualizerService {
         progress.start(.generating)
         let outputCount = try await generateOutputsWithSegments(
             tripId: tripId,
+            logs: logs,
             route: unifiedRoute,
             metadata: metadata
         )
@@ -446,12 +451,14 @@ public final class TripVisualizerService {
     /// Generates all requested output formats with segment support
     /// - Parameters:
     ///   - tripId: Trip UUID
+    ///   - logs: Array of LogFragment for data export generation
     ///   - route: Unified route with segments
     ///   - metadata: Trip processing metadata
     /// - Returns: Number of successfully generated outputs
     @discardableResult
     private func generateOutputsWithSegments(
         tripId: UUID,
+        logs: [LogFragment],
         route: UnifiedRoute,
         metadata: TripMetadata
     ) async throws -> Int {
@@ -505,6 +512,25 @@ public final class TripVisualizerService {
                 progress.warn("Failed to generate \(format) output")
                 logWarning("Failed to generate \(format) output: \(error.localizedDescription)")
             }
+        }
+
+        // Generate data export (always, per FR-001)
+        // Export failure is non-fatal - log warning but continue
+        do {
+            progress.update("Writing data export...")
+            let exportPath = try dataExportGenerator.generateAndWrite(
+                tripId: tripId,
+                logs: logs,
+                route: route,
+                metadata: metadata,
+                to: outputDir
+            )
+            logInfo("Data export written to \(exportPath)")
+            print("Data Export: \(exportPath)")
+            successCount += 1
+        } catch {
+            logWarning("Failed to generate data export: \(error.localizedDescription)")
+            // Continue - map outputs already generated successfully
         }
 
         // Report results
