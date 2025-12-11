@@ -70,20 +70,33 @@ public final class EnrichmentService: EnrichmentFetching, @unchecked Sendable {
 
     /// Fetches delivery destination for an order.
     ///
-    /// Queries DataDog for GetDeliveryOrder logs and extracts the
-    /// delivery address and coordinates for the specified order.
+    /// Queries DataDog for GetDeliveryOrder logs first. If not found,
+    /// falls back to OrderOutForDelivery logs which contain the same
+    /// delivery address information in a different structure.
     ///
     /// - Parameter orderId: The order UUID
     /// - Returns: DeliveryDestination or nil if not found
     public func fetchDeliveryDestination(
         orderId: UUID
     ) async throws -> DeliveryDestination? {
-        // Fetch delivery order logs for this specific order
-        let logs = try await dataDogClient.fetchDeliveryOrderLogs(orderId: orderId)
+        // First try: Fetch delivery order logs (GetDeliveryOrder)
+        let deliveryOrderLogs = try await dataDogClient.fetchDeliveryOrderLogs(orderId: orderId)
 
-        // Parse the first matching log
-        for log in logs {
+        // Parse the first matching log from GetDeliveryOrder
+        for log in deliveryOrderLogs {
             if let destination = parseDeliveryDestination(from: log) {
+                logDebug("Found delivery destination from GetDeliveryOrder log for order \(orderId.uuidString)")
+                return destination
+            }
+        }
+
+        // Fallback: Try OutForDelivery logs
+        logDebug("GetDeliveryOrder logs not found for order \(orderId.uuidString), trying OutForDelivery fallback")
+        let outForDeliveryLogs = try await dataDogClient.fetchOutForDeliveryLogs(orderId: orderId)
+
+        for log in outForDeliveryLogs {
+            if let destination = parseOutForDeliveryDestination(from: log) {
+                logDebug("Found delivery destination from OutForDelivery log for order \(orderId.uuidString)")
                 return destination
             }
         }
@@ -211,6 +224,93 @@ public final class EnrichmentService: EnrichmentFetching, @unchecked Sendable {
 
         // Use the DeliveryDestination factory method
         return DeliveryDestination.from(orderId: orderId, orderResponse: orderData)
+    }
+
+    /// Parses a DeliveryDestination from an OrderOutForDelivery log entry.
+    ///
+    /// This is a fallback parser for when GetDeliveryOrder logs are unavailable.
+    /// Extracts order data from the `order` attribute in the log.
+    /// Expected structure:
+    /// ```
+    /// {
+    ///   "order": {
+    ///     "OrderID": "uuid-string",
+    ///     "Latitude": 36.0934931,
+    ///     "Longitude": -80.0342805,
+    ///     "DeliveryAddress": {
+    ///       "AddressLine1": "1014 Grays Land Court",
+    ///       "AddressLine2": "Apt. 315",
+    ///       "AddressLine3": "Hand-off at door; Building 300, Apt 315",
+    ///       "City": "Kernersville",
+    ///       "State": "NC",
+    ///       "Zip": "27284"
+    ///     },
+    ///     "DropOffInstructions": "Hand-off at door; Building 300, Apt 315",
+    ///     "DestinationPlaceID": "Ek..."
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// - Parameter logEntry: DataDog log entry containing OutForDelivery order data
+    /// - Returns: DeliveryDestination or nil if parsing fails
+    func parseOutForDeliveryDestination(from logEntry: DataDogLogEntry) -> DeliveryDestination? {
+        // Extract order from log attributes (OutForDelivery uses PascalCase)
+        guard let orderData = logEntry.attributes.attributes["order"] as? [String: Any] else {
+            return nil
+        }
+
+        // Extract order ID (PascalCase in OutForDelivery logs)
+        guard let orderIdString = orderData["OrderID"] as? String,
+              let orderId = UUID(uuidString: orderIdString)
+        else {
+            return nil
+        }
+
+        // Extract coordinates (top-level in order, PascalCase)
+        guard let latitude = orderData["Latitude"] as? Double ?? (orderData["Latitude"] as? Float).map(Double.init),
+              let longitude = orderData["Longitude"] as? Double ?? (orderData["Longitude"] as? Float).map(Double.init)
+        else {
+            return nil
+        }
+
+        // Extract delivery address (PascalCase structure)
+        let deliveryAddress = orderData["DeliveryAddress"] as? [String: Any] ?? [:]
+        let addressLine1 = deliveryAddress["AddressLine1"] as? String ?? ""
+        let addressLine2 = deliveryAddress["AddressLine2"] as? String ?? ""
+        let city = deliveryAddress["City"] as? String ?? ""
+        let state = deliveryAddress["State"] as? String ?? ""
+        let zip = deliveryAddress["Zip"] as? String ?? ""
+
+        // Build full address string
+        var addressParts: [String] = []
+        if !addressLine1.isEmpty { addressParts.append(addressLine1) }
+        if !addressLine2.isEmpty { addressParts.append(addressLine2) }
+        if !city.isEmpty || !state.isEmpty || !zip.isEmpty {
+            addressParts.append("\(city), \(state) \(zip)")
+        }
+        let fullAddress = addressParts.joined(separator: ", ")
+
+        // Build display lines
+        var displayLine1 = addressLine1
+        if !addressLine2.isEmpty {
+            displayLine1 += ", \(addressLine2)"
+        }
+        let displayLine2 = "\(city), \(state) \(zip)"
+
+        // Extract optional fields
+        let dropoffInstructions = orderData["DropOffInstructions"] as? String
+        let destinationPlaceId = orderData["DestinationPlaceID"] as? String
+
+        return DeliveryDestination(
+            orderId: orderId,
+            address: fullAddress,
+            addressDisplayLine1: displayLine1,
+            addressDisplayLine2: displayLine2,
+            latitude: latitude,
+            longitude: longitude,
+            dropoffInstructions: dropoffInstructions,
+            destinationPlaceId: destinationPlaceId
+        )
     }
 
     /// Parses a RestaurantLocation from a DataDog log entry.

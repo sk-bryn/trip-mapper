@@ -241,4 +241,17 @@ public struct Configuration: Codable, Equatable {
     public func buildLocationsDetailsQuery(locationNumber: String) -> String {
         "env:\(datadogEnv) service:\(datadogService) \"handled request for GetLocationsDetails\" @response.Msg.locations.location_number:\(locationNumber)"
     }
+
+    /// Builds the DataDog query string for OrderOutForDelivery logs.
+    ///
+    /// Query format: `env:<datadogEnv> service:delivery-order-service @cfadEventName:OrderOutForDelivery @orderId:<uuid>`
+    ///
+    /// This is a fallback query used when GetDeliveryOrder logs are unavailable.
+    /// The OutForDelivery logs contain delivery address in `order.DeliveryAddress`.
+    ///
+    /// - Parameter orderId: The order UUID to filter by
+    /// - Returns: DataDog query string for out-for-delivery logs
+    public func buildOutForDeliveryQuery(orderId: UUID) -> String {
+        "env:\(datadogEnv) service:\(Self.deliveryOrderService) @cfadEventName:OrderOutForDelivery @orderId:\(orderId.uuidString.lowercased())"
+    }
 }

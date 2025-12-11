@@ -411,4 +411,175 @@ final class EnrichmentServiceTests: XCTestCase {
             timeZone: nil
         )
     }
+
+    // MARK: - OutForDelivery Parsing Test Helpers
+
+    private func makeOutForDeliveryLog(orderId: UUID) -> DataDogLogEntry {
+        DataDogLogEntry(
+            id: UUID().uuidString,
+            attributes: DataDogLogAttributes(
+                timestamp: ISO8601DateFormatter().string(from: Date()),
+                message: "Order Out For Delivery",
+                attributes: [
+                    "cfadEventName": "OrderOutForDelivery",
+                    "orderId": orderId.uuidString.lowercased(),
+                    "order": [
+                        "OrderID": orderId.uuidString.lowercased(),
+                        "Latitude": 36.0934931,
+                        "Longitude": -80.0342805,
+                        "DeliveryAddress": [
+                            "AddressLine1": "1014 Grays Land Court",
+                            "AddressLine2": "Apt. 315",
+                            "AddressLine3": "Hand-off at door",
+                            "City": "Kernersville",
+                            "State": "NC",
+                            "Zip": "27284"
+                        ] as [String: Any],
+                        "DropOffInstructions": "Hand-off at door; Building 300, Apt 315",
+                        "DestinationPlaceID": "EkAxMDE0IEdyYXlzIExhbmQgQ291cnQ"
+                    ] as [String: Any]
+                ]
+            ),
+            type: "log"
+        )
+    }
+
+    private func makeOutForDeliveryLogWithoutCoordinates(orderId: UUID) -> DataDogLogEntry {
+        DataDogLogEntry(
+            id: UUID().uuidString,
+            attributes: DataDogLogAttributes(
+                timestamp: ISO8601DateFormatter().string(from: Date()),
+                message: "Order Out For Delivery",
+                attributes: [
+                    "cfadEventName": "OrderOutForDelivery",
+                    "orderId": orderId.uuidString.lowercased(),
+                    "order": [
+                        "OrderID": orderId.uuidString.lowercased(),
+                        "DeliveryAddress": [
+                            "AddressLine1": "1014 Grays Land Court",
+                            "City": "Kernersville",
+                            "State": "NC",
+                            "Zip": "27284"
+                        ] as [String: Any]
+                    ] as [String: Any]
+                ]
+            ),
+            type: "log"
+        )
+    }
+
+    private func makeOutForDeliveryLogWithFloatCoordinates(orderId: UUID) -> DataDogLogEntry {
+        DataDogLogEntry(
+            id: UUID().uuidString,
+            attributes: DataDogLogAttributes(
+                timestamp: ISO8601DateFormatter().string(from: Date()),
+                message: "Order Out For Delivery",
+                attributes: [
+                    "cfadEventName": "OrderOutForDelivery",
+                    "order": [
+                        "OrderID": orderId.uuidString.lowercased(),
+                        "Latitude": Float(36.0934931),
+                        "Longitude": Float(-80.0342805),
+                        "DeliveryAddress": [
+                            "AddressLine1": "1014 Grays Land Court",
+                            "City": "Kernersville",
+                            "State": "NC",
+                            "Zip": "27284"
+                        ] as [String: Any]
+                    ] as [String: Any]
+                ]
+            ),
+            type: "log"
+        )
+    }
+
+    // MARK: - parseOutForDeliveryDestination Tests
+
+    func testParseOutForDeliveryDestination_ReturnsNil_WhenNoOrderData() {
+        let logEntry = makeEmptyLog()
+
+        let result = enrichmentService.parseOutForDeliveryDestination(from: logEntry)
+
+        XCTAssertNil(result)
+    }
+
+    func testParseOutForDeliveryDestination_ReturnsNil_WhenMissingCoordinates() {
+        let orderId = UUID()
+        let logEntry = makeOutForDeliveryLogWithoutCoordinates(orderId: orderId)
+
+        let result = enrichmentService.parseOutForDeliveryDestination(from: logEntry)
+
+        XCTAssertNil(result)
+    }
+
+    func testParseOutForDeliveryDestination_ReturnsDestination_WhenValidData() {
+        let orderId = UUID()
+        let logEntry = makeOutForDeliveryLog(orderId: orderId)
+
+        let result = enrichmentService.parseOutForDeliveryDestination(from: logEntry)
+
+        XCTAssertNotNil(result)
+        guard let destination = result else { return }
+
+        XCTAssertEqual(destination.orderId, orderId)
+        XCTAssertEqual(destination.latitude, 36.0934931, accuracy: 0.0001)
+        XCTAssertEqual(destination.longitude, -80.0342805, accuracy: 0.0001)
+        XCTAssertTrue(destination.address.contains("1014 Grays Land Court"))
+        XCTAssertTrue(destination.address.contains("Kernersville"))
+        XCTAssertEqual(destination.addressDisplayLine1, "1014 Grays Land Court, Apt. 315")
+        XCTAssertEqual(destination.addressDisplayLine2, "Kernersville, NC 27284")
+        XCTAssertEqual(destination.dropoffInstructions, "Hand-off at door; Building 300, Apt 315")
+        XCTAssertEqual(destination.destinationPlaceId, "EkAxMDE0IEdyYXlzIExhbmQgQ291cnQ")
+    }
+
+    func testParseOutForDeliveryDestination_HandlesFloatCoordinates() {
+        let orderId = UUID()
+        let logEntry = makeOutForDeliveryLogWithFloatCoordinates(orderId: orderId)
+
+        let result = enrichmentService.parseOutForDeliveryDestination(from: logEntry)
+
+        XCTAssertNotNil(result)
+        guard let destination = result else { return }
+
+        XCTAssertEqual(destination.orderId, orderId)
+        // Float precision is lower, so use larger accuracy
+        XCTAssertEqual(destination.latitude, Double(Float(36.0934931)), accuracy: 0.001)
+        XCTAssertEqual(destination.longitude, Double(Float(-80.0342805)), accuracy: 0.001)
+    }
+
+    func testParseOutForDeliveryDestination_HandlesMinimalAddress() {
+        let orderId = UUID()
+        // Create log with only required fields
+        let logEntry = DataDogLogEntry(
+            id: UUID().uuidString,
+            attributes: DataDogLogAttributes(
+                timestamp: ISO8601DateFormatter().string(from: Date()),
+                message: "Order Out For Delivery",
+                attributes: [
+                    "order": [
+                        "OrderID": orderId.uuidString.lowercased(),
+                        "Latitude": 36.0934931,
+                        "Longitude": -80.0342805,
+                        "DeliveryAddress": [
+                            "AddressLine1": "123 Main St",
+                            "City": "Anytown",
+                            "State": "NC",
+                            "Zip": "12345"
+                        ] as [String: Any]
+                    ] as [String: Any]
+                ]
+            ),
+            type: "log"
+        )
+
+        let result = enrichmentService.parseOutForDeliveryDestination(from: logEntry)
+
+        XCTAssertNotNil(result)
+        guard let destination = result else { return }
+
+        XCTAssertEqual(destination.addressDisplayLine1, "123 Main St")
+        XCTAssertEqual(destination.addressDisplayLine2, "Anytown, NC 12345")
+        XCTAssertNil(destination.dropoffInstructions)
+        XCTAssertNil(destination.destinationPlaceId)
+    }
 }
