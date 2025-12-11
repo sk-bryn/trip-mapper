@@ -174,6 +174,21 @@ public final class DataDogClient {
         return try await fetchEnrichmentLogs(query: query, limit: limit)
     }
 
+    /// Fetches logs for OrderOutForDelivery events for a specific order.
+    ///
+    /// Used as a fallback when GetDeliveryOrder logs are unavailable.
+    /// Contains delivery address in `order.DeliveryAddress` structure.
+    ///
+    /// - Parameters:
+    ///   - orderId: The order UUID to search for
+    ///   - limit: Maximum logs to return (default: 10)
+    /// - Returns: Array of DataDogLogEntry containing order data
+    /// - Throws: `TripVisualizerError` on failure
+    public func fetchOutForDeliveryLogs(orderId: UUID, limit: Int = 10) async throws -> [DataDogLogEntry] {
+        let query = configuration.buildOutForDeliveryQuery(orderId: orderId)
+        return try await fetchEnrichmentLogs(query: query, limit: limit)
+    }
+
     /// Fetches logs for GetLocationsDetails API calls.
     ///
     /// Used to retrieve restaurant location data by location_number.
